@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tools-call dashboard</title>
+<script src="/chart.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: #0f172a; color: #e2e8f0;
+         font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+  header { display: flex; align-items: baseline; justify-content: space-between;
+           flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  .controls { display: flex; align-items: center; gap: 14px; font-size: 13px; color: #94a3b8; }
+  .controls button { background: #1e293b; color: #7dd3fc; border: 1px solid #334155;
+                     border-radius: 6px; padding: 5px 14px; cursor: pointer; font-size: 13px; }
+  .controls button:hover { background: #334155; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+           gap: 12px; margin-bottom: 20px; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px; }
+  .card .num { font-size: 22px; font-weight: 700; color: #7dd3fc; }
+  .card .label { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
+  .panel.wide { grid-column: 1 / -1; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: #cbd5e1; }
+  .panel canvas { max-height: 300px; }
+  .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .toolbar label { font-size: 12px; color: #94a3b8; }
+  select { background: #0f172a; color: #7dd3fc; border: 1px solid #334155;
+           border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #334155; }
+  th { color: #94a3b8; font-weight: 500; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td.n { color: #7dd3fc; }
+  .muted { color: #64748b; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 900px) { .grid, .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent 工具 / Skill 使用统计</h1>
+  <div class="controls">
+    <span>数据更新于 __GENERATED__</span>
+    <label><input type="checkbox" id="auto" checked> 30s 自动刷新</label>
+    <button onclick="load()">刷新</button>
+  </div>
+</header>
+
+<section class="cards">
+  <div class="card"><div class="num" id="c-total">-</div><div class="label">总记录数</div></div>
+  <div class="card"><div class="num" id="c-clients">-</div><div class="label">Client 数</div></div>
+  <div class="card"><div class="num" id="c-users">-</div><div class="label">上传数据的用户数</div></div>
+  <div class="card"><div class="num" id="c-last" style="font-size:14px">-</div><div class="label">最新记录时间</div></div>
+</section>
+
+<section class="grid">
+  <div class="panel">
+    <h2>Tool 按天调用明细</h2>
+    <div class="toolbar">
+      <label>Tool <select id="tool-sel"></select></label>
+      <label>时间窗口
+        <select id="days-sel">
+          <option value="7">最近 7 天</option>
+          <option value="14" selected>最近 14 天</option>
+          <option value="30">最近 30 天</option>
+          <option value="90">最近 90 天</option>
+        </select>
+      </label>
+      <span class="muted" id="tool-hint"></span>
+    </div>
+    <canvas id="tool-daily"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Skill 按天调用明细</h2>
+    <div class="toolbar">
+      <label>Skill <select id="skill-sel"></select></label>
+      <label>时间窗口
+        <select id="skill-days-sel">
+          <option value="7">最近 7 天</option>
+          <option value="14" selected>最近 14 天</option>
+          <option value="30">最近 30 天</option>
+          <option value="90">最近 90 天</option>
+        </select>
+      </label>
+      <span class="muted" id="skill-hint"></span>
+    </div>
+    <canvas id="skill-daily"></canvas>
+  </div>
+  <div class="panel wide"><h2>每日记录趋势（全部）</h2><canvas id="daily"></canvas></div>
+  <div class="panel"><h2>Top 10 Skills（调用次数）</h2><canvas id="topskills"></canvas></div>
+  <div class="panel"><h2>Skill 调用次数（全部）</h2><canvas id="skills"></canvas></div>
+  <div class="panel"><h2>工具调用次数（全部）</h2><canvas id="tools"></canvas></div>
+</section>
+
+<div class="toolbar" style="margin-top:16px">
+  <label>用户
+    <select id="user-sel"><option value="__all__">全部用户</option></select>
+  </label>
+  <span class="muted" id="user-hint"></span>
+</div>
+
+<section class="grid">
+  <div class="panel">
+    <h2 id="users-title">用户 × 工具调用</h2>
+    <canvas id="users"></canvas>
+    <table id="t-users" style="margin-top:12px"></table>
+  </div>
+  <div class="panel">
+    <h2 id="user-skills-title">用户 × Skill 调用明细</h2>
+    <canvas id="user-skills"></canvas>
+    <table id="t-user-skills" style="margin-top:12px"></table>
+  </div>
+</section>
+
+<section class="cols">
+  <div class="panel"><h2>Skill 明细</h2><table id="t-skills"></table></div>
+  <div class="panel"><h2>工具明细</h2><table id="t-tools"></table></div>
+</section>
+
+<script>
+let DATA = __DATA__;
+
+const esc = (s) => String(s).replace(/&/g, "\u0026amp;").replace(/</g, "\u0026lt;")
+  .replace(/>/g, "\u0026gt;").replace(/"/g, "\u0026quot;");
+
+function hbar(id, pairs, color) {
+  return new Chart(document.getElementById(id), {
+    type: "bar",
+    data: { labels: pairs.map(p => p[0]), datasets: [{ data: pairs.map(p => p[1]), backgroundColor: color, borderRadius: 4 }] },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" }, beginAtZero: true },
+                y: { ticks: { color: "#cbd5e1" }, grid: { display: false } } } }
+  });
+}
+
+function lastNDays(n) {
+  const allDays = Object.keys(DATA.by_day || {}).sort();
+  const anchor = allDays.length ? allDays[allDays.length - 1] : new Date().toISOString().slice(0, 10);
+  const end = new Date(anchor + "T00:00:00Z");
+  const days = [];
+  for (let i = n - 1; i >= 0; i--) days.push(new Date(end.getTime() - i * 86400000).toISOString().slice(0, 10));
+  return days;
+}
+
+let topSkillChart, toolDailyChart, dailyChart, skillChart, toolChart, userChart, userSkillChart;
+
+const PALETTE = ["#38bdf8", "#a78bfa", "#34d399", "#f472b6", "#fbbf24", "#fb7185", "#4ade80", "#c084fc"];
+
+function updateBar(chart, pairs) {
+  chart.data.labels = pairs.map(p => p[0]);
+  chart.data.datasets[0].data = pairs.map(p => p[1]);
+  chart.update();
+}
+
+function renderToolDaily() {
+  const tool = document.getElementById("tool-sel").value;
+  const n = parseInt(document.getElementById("days-sel").value, 10);
+  if (!tool) return;
+  const days = lastNDays(n);
+  const perDay = (DATA.tool_days || {})[tool] || {};
+  const values = days.map(d => perDay[d] || 0);
+  const total = values.reduce((a, b) => a + b, 0);
+  document.getElementById("tool-hint").textContent =
+    `${tool} · 最近 ${n} 天共 ${total} 次`;
+  const pairs = days.map((d, i) => [d, values[i]]);
+  if (!toolDailyChart) {
+    toolDailyChart = new Chart(document.getElementById("tool-daily"), {
+      type: "bar",
+      data: { labels: pairs.map(p => p[0]), datasets: [{ data: pairs.map(p => p[1]),
+        backgroundColor: "#f472b6", borderRadius: 4 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true }, grid: { color: "#1e293b" } },
+                  y: { beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } } } }
+    });
+  } else {
+    updateBar(toolDailyChart, pairs);
+  }
+}
+
+let skillDailyChart;
+
+function renderSkillDaily() {
+  const skill = document.getElementById("skill-sel").value;
+  const n = parseInt(document.getElementById("skill-days-sel").value, 10);
+  if (!skill) return;
+  const days = lastNDays(n);
+  const perDay = (DATA.skill_days || {})[skill] || {};
+  const values = days.map(d => perDay[d] || 0);
+  const total = values.reduce((a, b) => a + b, 0);
+  document.getElementById("skill-hint").textContent = `${skill} · 最近 ${n} 天共 ${total} 次`;
+  const pairs = days.map((d, i) => [d, values[i]]);
+  if (!skillDailyChart) {
+    skillDailyChart = new Chart(document.getElementById("skill-daily"), {
+      type: "bar",
+      data: { labels: pairs.map(p => p[0]), datasets: [{ data: pairs.map(p => p[1]),
+        backgroundColor: "#fbbf24", borderRadius: 4 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true }, grid: { color: "#1e293b" } },
+                  y: { beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } } } }
+    });
+  } else {
+    updateBar(skillDailyChart, pairs);
+  }
+}
+
+function populateSkillSelect(d) {
+  const sel = document.getElementById("skill-sel");
+  const skills = Object.entries(d.by_skill || {}).sort((a, b) => b[1] - a[1]);
+  const current = sel.value;
+  sel.innerHTML = skills.map(([s]) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
+    || "<option value=''>（暂无 skill 数据）</option>";
+  if (skills.some(([s]) => s === current)) sel.value = current;
+  renderSkillDaily();
+}
+
+let selectedUser = "__all__";
+
+function knownUsers(d) {
+  return Object.entries(d.by_user || {}).filter(u => u[0] !== "<unknown>").sort((a, b) => b[1] - a[1]);
+}
+
+function populateUserSelect(d) {
+  const sel = document.getElementById("user-sel");
+  const users = knownUsers(d);
+  const current = sel.value || "__all__";
+  sel.innerHTML = '<option value="__all__">全部用户</option>' +
+    users.map(([u]) => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
+  sel.value = users.some(([u]) => u === current) ? current : "__all__";
+  selectedUser = sel.value;
+}
+
+function renderUserTools(d) {
+  const users = knownUsers(d);
+  const userTools = d.user_tools || {};
+  const all = selectedUser === "__all__";
+  const title = document.getElementById("users-title");
+  const hint = document.getElementById("user-hint");
+  let pairs, tableRows;
+  if (all) {
+    const shown = users.slice(0, 15);
+    pairs = shown.map(u => [u[0], u[1]]);
+    hint.textContent = users.length > 15
+      ? `显示调用最多的前 15 位（共 ${users.length} 位用户），可用下拉选择具体用户` : "";
+    title.textContent = "用户 × 工具调用";
+    tableRows = users.map(([u, total]) => {
+      const breakdown = Object.entries(userTools[u] || {}).sort((a, b) => b[1] - a[1])
+        .map(([t, n]) => `${t} ${n}`).join("，");
+      return `<tr><td>${esc(u)}</td><td class='n'>${total}</td><td class='muted'>${esc(breakdown) || "-"}</td></tr>`;
+    }).join("");
+  } else {
+    const tools = Object.entries(userTools[selectedUser] || {}).sort((a, b) => b[1] - a[1]);
+    pairs = tools;
+    hint.textContent = "";
+    title.textContent = `${selectedUser} 的工具调用明细`;
+    const total = (users.find(u => u[0] === selectedUser) || [0, 0])[1];
+    tableRows = `<tr><td>${esc(selectedUser)}</td><td class='n'>${total}</td><td class='muted'>${esc(tools.map(([t, n]) => `${t} ${n}`).join("，")) || "-"}</td></tr>`;
+  }
+  if (!userChart) {
+    userChart = hbar("users", pairs, "#34d399");
+  } else {
+    updateBar(userChart, pairs);
+  }
+  document.getElementById("t-users").innerHTML =
+    "<tr><th>用户</th><th class='n'>总调用</th><th>各工具明细</th></tr>" +
+    (tableRows || "<tr><td colspan='3' class='muted'>暂无带用户名的数据（旧 schema 记录无 user 字段）</td></tr>");
+}
+
+function renderUserSkills(d) {
+  const users = knownUsers(d);
+  const userSkills = d.user_skills || {};
+  const all = selectedUser === "__all__";
+  const title = document.getElementById("user-skills-title");
+  let labels, datasets, tableRows;
+  if (all) {
+    const shown = users.slice(0, 15);
+    const names = shown.map(u => u[0]);
+    const skillTotals = {};
+    for (const u of names) for (const [s, n] of Object.entries(userSkills[u] || {})) skillTotals[s] = (skillTotals[s] || 0) + n;
+    const topSkills = Object.entries(skillTotals).sort((a, b) => b[1] - a[1]).slice(0, 8).map(p => p[0]);
+    labels = names;
+    datasets = topSkills.map((s, i) => ({
+      label: s, data: names.map(u => (userSkills[u] || {})[s] || 0),
+      backgroundColor: PALETTE[i % PALETTE.length], borderRadius: 3 }));
+    title.textContent = "用户 × Skill 调用明细";
+    tableRows = users.map(([u]) => {
+      const breakdown = Object.entries(userSkills[u] || {}).sort((a, b) => b[1] - a[1])
+        .map(([s, n]) => `${s} ${n}`).join("，");
+      const total = Object.values(userSkills[u] || {}).reduce((a, b) => a + b, 0);
+      return `<tr><td>${esc(u)}</td><td class='n'>${total}</td><td class='muted'>${esc(breakdown) || "-"}</td></tr>`;
+    }).join("");
+  } else {
+    const skills = Object.entries(userSkills[selectedUser] || {}).sort((a, b) => b[1] - a[1]);
+    labels = skills.map(p => p[0]);
+    datasets = [{ label: selectedUser, data: skills.map(p => p[1]), backgroundColor: "#34d399", borderRadius: 3 }];
+    title.textContent = `${selectedUser} 的 Skill 调用明细`;
+    const total = skills.reduce((a, b) => a + b[1], 0);
+    tableRows = `<tr><td>${esc(selectedUser)}</td><td class='n'>${total}</td><td class='muted'>${esc(skills.map(([s, n]) => `${s} ${n}`).join("，")) || "-"}</td></tr>`;
+  }
+  if (!userSkillChart) {
+    userSkillChart = new Chart(document.getElementById("user-skills"), {
+      type: "bar",
+      data: { labels, datasets },
+      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom", labels: { color: "#94a3b8", boxWidth: 12, font: { size: 11 } } } },
+        scales: { x: { stacked: true, beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } },
+                  y: { stacked: true, ticks: { color: "#cbd5e1" }, grid: { display: false } } } }
+    });
+  } else {
+    userSkillChart.data.labels = labels;
+    userSkillChart.data.datasets = datasets;
+    userSkillChart.options.plugins.legend.display = all;
+    userSkillChart.update();
+  }
+  document.getElementById("t-user-skills").innerHTML =
+    "<tr><th>用户</th><th class='n'>Skill 总数</th><th>Skill 明细</th></tr>" +
+    (tableRows || "<tr><td colspan='3' class='muted'>暂无带用户名的 skill 数据</td></tr>");
+}
+
+function render(d) {
+  document.getElementById("c-total").textContent = d.total;
+  document.getElementById("c-clients").textContent =
+    Object.keys(d.by_client || {}).filter(c => c !== "<unknown>").length;
+  document.getElementById("c-users").textContent =
+    Object.keys(d.by_user || {}).filter(u => u !== "<unknown>").length;
+  document.getElementById("c-last").textContent = d.last_timestamp || "-";
+
+  const skills = Object.entries(d.by_skill || {});
+  const tools = Object.entries(d.by_tool || {});
+  const top10 = skills.slice(0, 10);
+  const days = Object.entries(d.by_day || {}).sort();
+
+  if (!topSkillChart) {
+    topSkillChart = hbar("topskills", top10, "#38bdf8");
+    skillChart = hbar("skills", skills, "#38bdf8");
+    toolChart = hbar("tools", tools, "#a78bfa");
+    dailyChart = new Chart(document.getElementById("daily"), {
+      type: "line",
+      data: { labels: days.map(p => p[0]), datasets: [{ data: days.map(p => p[1]),
+        borderColor: "#34d399", backgroundColor: "rgba(52,211,153,.15)", fill: true, tension: .3 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } },
+                  y: { beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } } } }
+    });
+  } else {
+    updateBar(topSkillChart, top10);
+    updateBar(skillChart, skills);
+    updateBar(toolChart, tools);
+    updateBar(dailyChart, days);
+  }
+
+  const sel = document.getElementById("tool-sel");
+  const toolNames = Object.keys(d.tool_days || {});
+  const current = sel.value;
+  sel.innerHTML = toolNames.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("")
+    || "<option value=''>（暂无 tool 数据）</option>";
+  if (toolNames.includes(current)) sel.value = current;
+  renderToolDaily();
+  populateSkillSelect(d);
+  populateUserSelect(d);
+  renderUserTools(d);
+  renderUserSkills(d);
+
+  const rows = (pairs) => "<tr><th>名称</th><th class='n'>次数</th></tr>" +
+    pairs.map(p => `<tr><td>${esc(p[0])}</td><td class='n'>${p[1]}</td></tr>`).join("");
+  document.getElementById("t-skills").innerHTML = rows(skills);
+  document.getElementById("t-tools").innerHTML = rows(tools);
+}
+
+function load() {
+  fetch("/v1/stats").then(r => r.json()).then(d => { DATA = d; render(d); }).catch(() => {});
+}
+
+render(DATA);
+document.getElementById("tool-sel").addEventListener("change", renderToolDaily);
+document.getElementById("days-sel").addEventListener("change", renderToolDaily);
+document.getElementById("skill-sel").addEventListener("change", renderSkillDaily);
+document.getElementById("skill-days-sel").addEventListener("change", renderSkillDaily);
+document.getElementById("user-sel").addEventListener("change", () => {
+  selectedUser = document.getElementById("user-sel").value;
+  renderUserTools(DATA);
+  renderUserSkills(DATA);
+});
+setInterval(() => { if (document.getElementById("auto").checked) load(); }, 30000);
+</script>
+</body>
+</html>

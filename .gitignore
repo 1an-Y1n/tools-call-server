@@ -1,0 +1,15 @@
+# Python runtime artifacts
+__pycache__/
+*.pyc
+
+# Runtime data (SQLite database is created on first start)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Virtual environments
+.venv/
+
+# OS
+.DS_Store
