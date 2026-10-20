@@ -2,3 +2,5 @@
 # (uvicorn 0.34+ needs a newer Python and is missing on some internal mirrors)
 fastapi>=0.115,<0.116
 uvicorn>=0.30,<0.34
+# Signed session cookies for local-account login (starlette SessionMiddleware)
+itsdangerous>=2.1,<3

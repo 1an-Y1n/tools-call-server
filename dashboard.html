@@ -1,394 +1,577 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>tools-call dashboard</title>
-<script src="/chart.js"></script>
+<script src="/echarts"></script>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; padding: 24px; background: #0f172a; color: #e2e8f0;
-         font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
-  header { display: flex; align-items: baseline; justify-content: space-between;
-           flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
-  h1 { font-size: 20px; margin: 0; }
-  .controls { display: flex; align-items: center; gap: 14px; font-size: 13px; color: #94a3b8; }
-  .controls button { background: #1e293b; color: #7dd3fc; border: 1px solid #334155;
-                     border-radius: 6px; padding: 5px 14px; cursor: pointer; font-size: 13px; }
-  .controls button:hover { background: #334155; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-           gap: 12px; margin-bottom: 20px; }
-  .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px; }
-  .card .num { font-size: 22px; font-weight: 700; color: #7dd3fc; }
-  .card .label { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .panel { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
-  .panel.wide { grid-column: 1 / -1; }
-  .panel h2 { font-size: 14px; margin: 0 0 12px; color: #cbd5e1; }
-  .panel canvas { max-height: 300px; }
-  .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-  .toolbar label { font-size: 12px; color: #94a3b8; }
-  select { background: #0f172a; color: #7dd3fc; border: 1px solid #334155;
-           border-radius: 6px; padding: 4px 8px; font-size: 13px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #334155; }
-  th { color: #94a3b8; font-weight: 500; }
-  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
-  td.n { color: #7dd3fc; }
-  .muted { color: #64748b; }
-  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
-  @media (max-width: 900px) { .grid, .cols { grid-template-columns: 1fr; } }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;
+background:#f5f6f8;color:#1f2328;font-size:14px;line-height:1.6}
+.wrap{max-width:1400px;margin:0 auto;padding:28px 24px 60px}
+h1{font-size:22px;font-weight:600;margin-bottom:6px}
+.sub{color:#6b7280;font-size:13px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.sub a{color:#3b7ddd;text-decoration:none;cursor:pointer}
+.sub a:hover{text-decoration:underline}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.kpi{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px}
+.kpi .v{font-size:24px;font-weight:600;line-height:1.2}
+.kpi .l{color:#6b7280;font-size:12px;margin-top:4px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid #e5e7eb;margin-bottom:22px;flex-wrap:wrap}
+.tab{padding:9px 16px;cursor:pointer;border-radius:8px 8px 0 0;color:#6b7280;
+font-size:14px;border:1px solid transparent;border-bottom:none;white-space:nowrap}
+.tab:hover{background:#eef0f3}
+.tab.on{background:#fff;color:#1f2328;font-weight:600;border-color:#e5e7eb;
+margin-bottom:-1px;padding-bottom:10px}
+.panel{display:none}.panel.on{display:block}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin-bottom:18px}
+.card .ttl{font-size:14px;font-weight:600;margin-bottom:14px;color:#31363c}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:1000px){.grid2{grid-template-columns:1fr}}
+.chart{width:100%;height:360px}
+.chart.sm{height:300px}
+.chart.lg{height:460px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;background:#f7f8fa;color:#4b5563;font-weight:600;
+border-bottom:1px solid #e5e7eb;white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid #f0f1f3;vertical-align:top}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{height:7px;background:#e5e7eb;border-radius:4px;overflow:hidden;min-width:60px}
+.bar>i{display:block;height:100%;background:#3b7ddd;border-radius:4px}
+.muted{color:#9ca3af;font-size:12px}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;background:#eef2f7;
+color:#4b5563;font-size:11px;margin-right:4px}
+.empty{color:#9ca3af;padding:20px;text-align:center}
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;font-size:13px;color:#6b7280}
+select,input{background:#fff;color:#1f2328;border:1px solid #dcdfe5;
+border-radius:6px;padding:5px 8px;font-size:13px;font-family:inherit}
+select:focus,input:focus{outline:none;border-color:#3b7ddd}
+button{background:#fff;color:#1f2328;border:1px solid #dcdfe5;border-radius:6px;
+padding:5px 14px;cursor:pointer;font-size:13px;font-family:inherit}
+button:hover{background:#eef0f3}
+button.primary{background:#3b7ddd;color:#fff;border-color:#3b7ddd}
+button.primary:hover{background:#2f6bc4}
+.pwwrap{position:relative;display:inline-flex}
+.pwwrap input{padding-right:36px}
+button.pweye{position:absolute;top:0;right:0;height:100%;width:34px;margin:0;
+display:flex;align-items:center;justify-content:center;
+border:none;background:transparent;cursor:pointer;padding:0;color:#9ca3af}
+button.pweye:hover{background:transparent;color:#3b7ddd}
+.pwwrap:focus-within .pweye{color:#3b7ddd}
+.pweye svg{display:block}
 </style>
 </head>
 <body>
-<header>
+<div class="wrap">
   <h1>Agent 工具 / Skill 使用统计</h1>
-  <div class="controls">
+  <div class="sub">
     <span>数据更新于 __GENERATED__</span>
     <label><input type="checkbox" id="auto" checked> 30s 自动刷新</label>
     <button onclick="load()">刷新</button>
+    <span id="user-box"></span>
   </div>
-</header>
 
-<section class="cards">
-  <div class="card"><div class="num" id="c-total">-</div><div class="label">总记录数</div></div>
-  <div class="card"><div class="num" id="c-clients">-</div><div class="label">Client 数</div></div>
-  <div class="card"><div class="num" id="c-users">-</div><div class="label">上传数据的用户数</div></div>
-  <div class="card"><div class="num" id="c-last" style="font-size:14px">-</div><div class="label">最新记录时间</div></div>
-</section>
+  <div class="kpis">
+    <div class="kpi"><div class="v" id="k-total">-</div><div class="l">总记录数</div></div>
+    <div class="kpi"><div class="v" id="k-clients">-</div><div class="l">Client 数</div></div>
+    <div class="kpi" id="k-users-card"><div class="v" id="k-users">-</div><div class="l">上传数据的用户数</div></div>
+    <div class="kpi"><div class="v" id="k-last" style="font-size:14px;padding-top:6px">-</div><div class="l">最新记录时间</div></div>
+  </div>
 
-<section class="grid">
-  <div class="panel">
-    <h2>Tool 按天调用明细</h2>
-    <div class="toolbar">
-      <label>Tool <select id="tool-sel"></select></label>
-      <label>时间窗口
-        <select id="days-sel">
-          <option value="7">最近 7 天</option>
-          <option value="14" selected>最近 14 天</option>
-          <option value="30">最近 30 天</option>
-          <option value="90">最近 90 天</option>
-        </select>
-      </label>
-      <span class="muted" id="tool-hint"></span>
+  <div class="tabs">
+    <div class="tab on" data-tab="overview">总览</div>
+    <div class="tab" data-tab="tool">Tool 分析</div>
+    <div class="tab" data-tab="skill">Skill 分析</div>
+    <div class="tab" data-tab="user" id="tab-user">用户分析</div>
+    <div class="tab" data-tab="account">账号</div>
+  </div>
+
+  <div class="panel on" id="p-overview">
+    <div class="card"><div class="ttl">每日记录趋势</div><div id="c-daily" class="chart"></div></div>
+    <div class="grid2">
+      <div class="card"><div class="ttl">工具调用次数</div><div id="c-tools" class="chart"></div></div>
+      <div class="card"><div class="ttl">Top 10 Skills</div><div id="c-topskills" class="chart"></div></div>
     </div>
-    <canvas id="tool-daily"></canvas>
-  </div>
-  <div class="panel">
-    <h2>Skill 按天调用明细</h2>
-    <div class="toolbar">
-      <label>Skill <select id="skill-sel"></select></label>
-      <label>时间窗口
-        <select id="skill-days-sel">
-          <option value="7">最近 7 天</option>
-          <option value="14" selected>最近 14 天</option>
-          <option value="30">最近 30 天</option>
-          <option value="90">最近 90 天</option>
-        </select>
-      </label>
-      <span class="muted" id="skill-hint"></span>
+    <div class="grid2">
+      <div class="card"><div class="ttl">工具明细</div><div id="t-tools"></div></div>
+      <div class="card"><div class="ttl">Skill 明细</div><div id="t-skills"></div></div>
     </div>
-    <canvas id="skill-daily"></canvas>
   </div>
-  <div class="panel wide"><h2>每日记录趋势（全部）</h2><canvas id="daily"></canvas></div>
-  <div class="panel"><h2>Top 10 Skills（调用次数）</h2><canvas id="topskills"></canvas></div>
-  <div class="panel"><h2>Skill 调用次数（全部）</h2><canvas id="skills"></canvas></div>
-  <div class="panel"><h2>工具调用次数（全部）</h2><canvas id="tools"></canvas></div>
-</section>
 
-<div class="toolbar" style="margin-top:16px">
-  <label>用户
-    <select id="user-sel"><option value="__all__">全部用户</option></select>
-  </label>
-  <span class="muted" id="user-hint"></span>
+  <div class="panel" id="p-tool">
+    <div class="card"><div class="ttl">Tool 按天调用明细</div>
+      <div class="toolbar">
+        <label id="tool-user-wrap">用户 <select id="tool-user-sel"><option value="__all__">全部用户</option></select></label>
+        <label>Tool <select id="tool-sel"></select></label>
+        <label>时间窗口
+          <select id="days-sel">
+            <option value="7">最近 7 天</option>
+            <option value="14" selected>最近 14 天</option>
+            <option value="30">最近 30 天</option>
+            <option value="90">最近 90 天</option>
+            <option value="180">最近半年</option>
+            <option value="365">最近一年</option>
+          </select>
+        </label>
+        <span class="muted" id="tool-hint"></span>
+      </div>
+      <div id="c-tool-daily" class="chart"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="p-skill">
+    <div class="card"><div class="ttl">Skill 按天调用明细</div>
+      <div class="toolbar">
+        <label id="skill-user-wrap">用户 <select id="skill-user-sel"><option value="__all__">全部用户</option></select></label>
+        <label>Skill <select id="skill-sel"></select></label>
+        <label>时间窗口
+          <select id="skill-days-sel">
+            <option value="7">最近 7 天</option>
+            <option value="14" selected>最近 14 天</option>
+            <option value="30">最近 30 天</option>
+            <option value="90">最近 90 天</option>
+            <option value="180">最近半年</option>
+            <option value="365">最近一年</option>
+          </select>
+        </label>
+        <span class="muted" id="skill-hint"></span>
+      </div>
+      <div id="c-skill-daily" class="chart"></div>
+    </div>
+    <div class="card"><div class="ttl">Skill 调用次数（全部）</div><div id="c-skills-all" class="chart lg"></div></div>
+  </div>
+
+  <div class="panel" id="p-user">
+    <div class="card"><div class="ttl">用户 × 工具调用</div>
+      <div class="toolbar" id="user-sel-wrap">
+        <label>用户 <select id="user-sel"><option value="__all__">全部用户</option></select></label>
+        <span class="muted" id="user-hint"></span>
+      </div>
+      <div id="c-user-tools" class="chart lg"></div>
+      <div id="t-users" style="margin-top:12px"></div>
+    </div>
+    <div class="card"><div class="ttl">用户 × Skill 调用</div>
+      <div id="c-user-skills" class="chart lg"></div>
+      <div id="t-user-skills" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="p-account">
+    <div class="card"><div class="ttl">修改我的密码</div>
+      <div class="toolbar">
+        <span class="pwwrap"><input id="pw-old" type="password" placeholder="旧密码" size="16" autocomplete="current-password"><button type="button" class="pweye" id="eye-pw-old" tabindex="-1"></button></span>
+        <span class="pwwrap"><input id="pw-new" type="password" placeholder="新密码（至少 8 位）" size="20" autocomplete="new-password"><button type="button" class="pweye" id="eye-pw-new" tabindex="-1"></button></span>
+        <button class="primary" id="pw-save">保存</button>
+        <span class="muted" id="pw-msg"></span>
+      </div>
+    </div>
+    <div class="card" id="admin-card" style="display:none"><div class="ttl">用户管理</div>
+      <div class="toolbar">
+        <input id="nu-name" placeholder="用户名（需与数据中的 user 字段一致）" size="30">
+        <span class="pwwrap"><input id="nu-pass" type="password" placeholder="初始密码（至少 8 位）" size="20" autocomplete="new-password"><button type="button" class="pweye" id="eye-nu-pass" tabindex="-1"></button></span>
+        <select id="nu-role"><option value="user">普通用户</option><option value="admin">管理员</option></select>
+        <button class="primary" id="nu-add">添加用户</button>
+        <span class="muted" id="admin-msg"></span>
+      </div>
+      <div id="t-admin"></div>
+    </div>
+  </div>
 </div>
-
-<section class="grid">
-  <div class="panel">
-    <h2 id="users-title">用户 × 工具调用</h2>
-    <canvas id="users"></canvas>
-    <table id="t-users" style="margin-top:12px"></table>
-  </div>
-  <div class="panel">
-    <h2 id="user-skills-title">用户 × Skill 调用明细</h2>
-    <canvas id="user-skills"></canvas>
-    <table id="t-user-skills" style="margin-top:12px"></table>
-  </div>
-</section>
-
-<section class="cols">
-  <div class="panel"><h2>Skill 明细</h2><table id="t-skills"></table></div>
-  <div class="panel"><h2>工具明细</h2><table id="t-tools"></table></div>
-</section>
 
 <script>
 let DATA = __DATA__;
+const USER = __USER__;
+let isAdmin = !!(USER && USER.role === "admin");
+let selectedUser = "__all__";
 
-const esc = (s) => String(s).replace(/&/g, "\u0026amp;").replace(/</g, "\u0026lt;")
+const esc = (s) => String(s == null ? "" : s).replace(/&/g, "\u0026amp;").replace(/</g, "\u0026lt;")
   .replace(/>/g, "\u0026gt;").replace(/"/g, "\u0026quot;");
 
-function hbar(id, pairs, color) {
-  return new Chart(document.getElementById(id), {
-    type: "bar",
-    data: { labels: pairs.map(p => p[0]), datasets: [{ data: pairs.map(p => p[1]), backgroundColor: color, borderRadius: 4 }] },
-    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { x: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" }, beginAtZero: true },
-                y: { ticks: { color: "#cbd5e1" }, grid: { display: false } } } }
-  });
+const PAL = ['#3b7ddd','#1d9e75','#e8a33d','#d4537e','#7f77dd','#43a7c4','#8fbf4d','#e07b58'];
+const chartCache = {};
+
+function draw(id, opt){
+  let c = chartCache[id];
+  if (!c){ c = echarts.init(document.getElementById(id)); chartCache[id] = c; }
+  c.setOption(opt, true);
+  return c;
+}
+function resizeAll(){ Object.values(chartCache).forEach(c => { try{ c.resize(); }catch(e){} }); }
+window.addEventListener("resize", resizeAll);
+
+function axisCommon(){
+  return { axisLine:{lineStyle:{color:"#dcdfe5"}}, axisTick:{show:false},
+           axisLabel:{color:"#6b7280",fontSize:11} };
 }
 
-function lastNDays(n) {
-  const allDays = Object.keys(DATA.by_day || {}).sort();
-  const anchor = allDays.length ? allDays[allDays.length - 1] : new Date().toISOString().slice(0, 10);
+function optBarH(rows, color){
+  rows = rows.slice().sort((a,b) => a.n - b.n);
+  const total = rows.reduce((s,r) => s + r.n, 0) || 1;
+  return {
+    grid:{left:8,right:56,top:10,bottom:8,containLabel:true},
+    tooltip:{trigger:"item",formatter:p => p.name + "<br/>" + p.value + " 次（" + (p.value/total*100).toFixed(1) + "%）"},
+    xAxis:Object.assign({type:"value",splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
+    yAxis:Object.assign({type:"category",data:rows.map(r => r.name)}, axisCommon()),
+    series:[{type:"bar",barMaxWidth:20,
+      data:rows.map(r => ({value:r.n, itemStyle:{color:color||PAL[0], borderRadius:[0,4,4,0]}})),
+      label:{show:true,position:"right",fontSize:11,color:"#4b5563",formatter:p => p.value}}]
+  };
+}
+
+function optLine(buckets, values){
+  return {
+    grid:{left:8,right:24,top:24,bottom:8,containLabel:true},
+    tooltip:{trigger:"axis"},
+    xAxis:Object.assign({type:"category",data:buckets,boundaryGap:false}, axisCommon()),
+    yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
+    series:[{type:"line",smooth:true,symbolSize:6,data:values,itemStyle:{color:PAL[0]},
+      areaStyle:{color:"rgba(59,125,221,0.12)"},
+      label:{show:true,fontSize:10,color:"#6b7280",formatter:p => p.value}}]
+  };
+}
+
+function optStack(buckets, series){
+  return {
+    grid:{left:8,right:20,top:34,bottom:8,containLabel:true},
+    tooltip:{trigger:"axis",axisPointer:{type:"shadow"}},
+    legend:{type:"scroll",top:0,textStyle:{fontSize:11,color:"#4b5563"},itemWidth:10,itemHeight:10},
+    xAxis:Object.assign({type:"category",data:buckets}, axisCommon()),
+    yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
+    series:series.map((s,i) => ({name:s.name,type:"bar",stack:"a",barMaxWidth:38,
+      itemStyle:{color:PAL[i % PAL.length]},data:s.data}))
+  };
+}
+
+function tbl(rows, cols){
+  if (!rows.length) return '<div class="empty">暂无数据</div>';
+  const max = Math.max(...rows.map(r => r.n || 0)) || 1;
+  let h = '<table><thead><tr>' +
+    cols.map(c => '<th' + (c.num ? ' class="num"' : '') + '>' + c.t + '</th>').join("") +
+    '</tr></thead><tbody>';
+  rows.forEach(r => {
+    h += '<tr>';
+    cols.forEach(c => {
+      if (c.bar){
+        h += '<td style="width:120px"><div class="bar"><i style="width:' +
+             (r.n / max * 100) + '%;background:' + (c.color || PAL[0]) + '"></i></div></td>';
+      } else {
+        h += '<td' + (c.num ? ' class="num"' : '') + '>' + (c.f ? c.f(r) : esc(r[c.k])) + '</td>';
+      }
+    });
+    h += '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+const EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>';
+
+function bindEye(btnId, inputId){
+  const btn = document.getElementById(btnId), inp = document.getElementById(inputId);
+  btn.innerHTML = EYE;
+  btn.title = "显示密码";
+  btn.setAttribute("aria-label", "显示密码");
+  btn.onclick = () => {
+    const show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    btn.innerHTML = show ? EYE_OFF : EYE;
+    btn.title = show ? "隐藏密码" : "显示密码";
+    btn.setAttribute("aria-label", btn.title);
+  };
+}
+bindEye("eye-pw-old", "pw-old");
+bindEye("eye-pw-new", "pw-new");
+bindEye("eye-nu-pass", "nu-pass");
+
+function knownUsers(d){
+  return Object.entries(d.by_user || {}).filter(u => u[0] !== "<unknown>").sort((a,b) => b[1] - a[1]);
+}
+
+function lastNDays(n){
+  const all = Object.keys(DATA.by_day || {}).sort();
+  const anchor = all.length ? all[all.length - 1] : new Date().toISOString().slice(0, 10);
   const end = new Date(anchor + "T00:00:00Z");
   const days = [];
   for (let i = n - 1; i >= 0; i--) days.push(new Date(end.getTime() - i * 86400000).toISOString().slice(0, 10));
   return days;
 }
 
-let topSkillChart, toolDailyChart, dailyChart, skillChart, toolChart, userChart, userSkillChart;
-
-const PALETTE = ["#38bdf8", "#a78bfa", "#34d399", "#f472b6", "#fbbf24", "#fb7185", "#4ade80", "#c084fc"];
-
-function updateBar(chart, pairs) {
-  chart.data.labels = pairs.map(p => p[0]);
-  chart.data.datasets[0].data = pairs.map(p => p[1]);
-  chart.update();
+function renderKpis(d){
+  document.getElementById("k-total").textContent = d.total;
+  document.getElementById("k-clients").textContent =
+    Object.keys(d.by_client || {}).filter(c => c !== "<unknown>").length;
+  document.getElementById("k-users").textContent = knownUsers(d).length;
+  document.getElementById("k-last").textContent = d.last_timestamp || "-";
 }
 
-function renderToolDaily() {
-  const tool = document.getElementById("tool-sel").value;
-  const n = parseInt(document.getElementById("days-sel").value, 10);
-  if (!tool) return;
-  const days = lastNDays(n);
-  const perDay = (DATA.tool_days || {})[tool] || {};
-  const values = days.map(d => perDay[d] || 0);
-  const total = values.reduce((a, b) => a + b, 0);
-  document.getElementById("tool-hint").textContent =
-    `${tool} · 最近 ${n} 天共 ${total} 次`;
-  const pairs = days.map((d, i) => [d, values[i]]);
-  if (!toolDailyChart) {
-    toolDailyChart = new Chart(document.getElementById("tool-daily"), {
-      type: "bar",
-      data: { labels: pairs.map(p => p[0]), datasets: [{ data: pairs.map(p => p[1]),
-        backgroundColor: "#f472b6", borderRadius: 4 }] },
-      options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { x: { ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true }, grid: { color: "#1e293b" } },
-                  y: { beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } } } }
-    });
-  } else {
-    updateBar(toolDailyChart, pairs);
-  }
+function renderOverview(d){
+  const days = Object.entries(d.by_day || {}).sort((a,b) => a[0].localeCompare(b[0]));
+  draw("c-daily", optLine(days.map(p => p[0]), days.map(p => p[1])));
+  const tools = Object.entries(d.by_tool || {}).map(([name, n]) => ({name, n}));
+  const skills = Object.entries(d.by_skill || {}).map(([name, n]) => ({name, n}));
+  draw("c-tools", optBarH(tools, PAL[0]));
+  draw("c-topskills", optBarH(skills.slice(0, 10), PAL[1]));
+  document.getElementById("t-tools").innerHTML = tbl(tools,
+    [{t:"工具",k:"name"},{t:"次数",k:"n",num:true},{t:"",bar:true}]);
+  document.getElementById("t-skills").innerHTML = tbl(skills,
+    [{t:"Skill",k:"name"},{t:"次数",k:"n",num:true},{t:"",bar:true,color:PAL[1]}]);
 }
 
-let skillDailyChart;
-
-function renderSkillDaily() {
-  const skill = document.getElementById("skill-sel").value;
-  const n = parseInt(document.getElementById("skill-days-sel").value, 10);
-  if (!skill) return;
-  const days = lastNDays(n);
-  const perDay = (DATA.skill_days || {})[skill] || {};
-  const values = days.map(d => perDay[d] || 0);
-  const total = values.reduce((a, b) => a + b, 0);
-  document.getElementById("skill-hint").textContent = `${skill} · 最近 ${n} 天共 ${total} 次`;
-  const pairs = days.map((d, i) => [d, values[i]]);
-  if (!skillDailyChart) {
-    skillDailyChart = new Chart(document.getElementById("skill-daily"), {
-      type: "bar",
-      data: { labels: pairs.map(p => p[0]), datasets: [{ data: pairs.map(p => p[1]),
-        backgroundColor: "#fbbf24", borderRadius: 4 }] },
-      options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { x: { ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true }, grid: { color: "#1e293b" } },
-                  y: { beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } } } }
-    });
-  } else {
-    updateBar(skillDailyChart, pairs);
-  }
-}
-
-function populateSkillSelect(d) {
-  const sel = document.getElementById("skill-sel");
-  const skills = Object.entries(d.by_skill || {}).sort((a, b) => b[1] - a[1]);
-  const current = sel.value;
-  sel.innerHTML = skills.map(([s]) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
-    || "<option value=''>（暂无 skill 数据）</option>";
-  if (skills.some(([s]) => s === current)) sel.value = current;
-  renderSkillDaily();
-}
-
-let selectedUser = "__all__";
-
-function knownUsers(d) {
-  return Object.entries(d.by_user || {}).filter(u => u[0] !== "<unknown>").sort((a, b) => b[1] - a[1]);
-}
-
-function populateUserSelect(d) {
-  const sel = document.getElementById("user-sel");
+function populateUserFilter(id, d){
+  const sel = document.getElementById(id);
   const users = knownUsers(d);
-  const current = sel.value || "__all__";
+  const cur = sel.value || "__all__";
   sel.innerHTML = '<option value="__all__">全部用户</option>' +
     users.map(([u]) => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
-  sel.value = users.some(([u]) => u === current) ? current : "__all__";
+  sel.value = users.some(([u]) => u === cur) ? cur : "__all__";
+}
+
+function renderToolTab(d){
+  populateUserFilter("tool-user-sel", d);
+  const user = document.getElementById("tool-user-sel").value;
+  const sel = document.getElementById("tool-sel");
+  const names = user === "__all__" ? Object.keys(d.tool_days || {})
+    : Object.keys((d.user_tool_days || {})[user] || {});
+  const cur = sel.value;
+  sel.innerHTML = names.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("")
+    || "<option value=''>（暂无 tool 数据）</option>";
+  if (names.includes(cur)) sel.value = cur;
+  const tool = sel.value;
+  if (!tool) return;
+  const n = parseInt(document.getElementById("days-sel").value, 10);
+  const days = lastNDays(n);
+  const perDay = user === "__all__" ? (d.tool_days || {})[tool] || {}
+    : ((d.user_tool_days || {})[user] || {})[tool] || {};
+  const values = days.map(x => perDay[x] || 0);
+  const who = isAdmin ? (user === "__all__" ? "全部用户" : user) + " · " : "";
+  document.getElementById("tool-hint").textContent =
+    `${who}${tool} · 最近 ${n} 天共 ${values.reduce((a,b) => a+b, 0)} 次`;
+  draw("c-tool-daily", optLine(days, values));
+}
+
+function renderSkillTab(d){
+  populateUserFilter("skill-user-sel", d);
+  const user = document.getElementById("skill-user-sel").value;
+  const sel = document.getElementById("skill-sel");
+  const names = user === "__all__" ? Object.keys(d.by_skill || {})
+    : Object.keys((d.user_skill_days || {})[user] || {});
+  const cur = sel.value;
+  sel.innerHTML = names.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
+    || "<option value=''>（暂无 skill 数据）</option>";
+  if (names.includes(cur)) sel.value = cur;
+  const skill = sel.value;
+  if (skill){
+    const n = parseInt(document.getElementById("skill-days-sel").value, 10);
+    const days = lastNDays(n);
+    const perDay = user === "__all__" ? (d.skill_days || {})[skill] || {}
+      : ((d.user_skill_days || {})[user] || {})[skill] || {};
+    const values = days.map(x => perDay[x] || 0);
+    const who = isAdmin ? (user === "__all__" ? "全部用户" : user) + " · " : "";
+    document.getElementById("skill-hint").textContent =
+      `${who}${skill} · 最近 ${n} 天共 ${values.reduce((a,b) => a+b, 0)} 次`;
+    draw("c-skill-daily", optLine(days, values));
+  }
+  const skills = Object.entries(d.by_skill || {}).map(([name, n]) => ({name, n}));
+  draw("c-skills-all", optBarH(skills, PAL[1]));
+}
+
+function renderUserTab(d){
+  const users = knownUsers(d);
+  const userTools = d.user_tools || {}, userSkills = d.user_skills || {};
+  const hint = document.getElementById("user-hint");
+  let tOpt, sOpt, tRows, sRows;
+  if (selectedUser === "__all__"){
+    const shown = users.slice(0, 15).map(u => u[0]);
+    hint.textContent = users.length > 15
+      ? `显示调用最多的前 15 位（共 ${users.length} 位），可用下拉选择具体用户` : "";
+    const toolTotals = {}, skillTotals = {};
+    shown.forEach(u => Object.entries(userTools[u] || {}).forEach(([t, n]) => toolTotals[t] = (toolTotals[t] || 0) + n));
+    shown.forEach(u => Object.entries(userSkills[u] || {}).forEach(([s, n]) => skillTotals[s] = (skillTotals[s] || 0) + n));
+    const topTools = Object.entries(toolTotals).sort((a,b) => b[1] - a[1]).slice(0, 8).map(p => p[0]);
+    const topSkills = Object.entries(skillTotals).sort((a,b) => b[1] - a[1]).slice(0, 8).map(p => p[0]);
+    tOpt = optStack(shown, topTools.map(t => ({name:t, data:shown.map(u => (userTools[u] || {})[t] || 0)})));
+    sOpt = optStack(shown, topSkills.map(s => ({name:s, data:shown.map(u => (userSkills[u] || {})[s] || 0)})));
+    tRows = users.map(([u, total]) => ({name:u, n:total,
+      detail:Object.entries(userTools[u] || {}).sort((a,b) => b[1] - a[1]).map(([t, n]) => `${t} ${n}`).join("，")}));
+    sRows = users.map(([u]) => {
+      const det = Object.entries(userSkills[u] || {}).sort((a,b) => b[1] - a[1]);
+      return {name:u, n:det.reduce((s, x) => s + x[1], 0), detail:det.map(([s, n]) => `${s} ${n}`).join("，")};
+    });
+  } else {
+    hint.textContent = "";
+    const tools = Object.entries(userTools[selectedUser] || {}).sort((a,b) => b[1] - a[1]).map(([name, n]) => ({name, n}));
+    const skills = Object.entries(userSkills[selectedUser] || {}).sort((a,b) => b[1] - a[1]).map(([name, n]) => ({name, n}));
+    tOpt = optBarH(tools, PAL[0]);
+    sOpt = optBarH(skills, PAL[1]);
+    const uTotal = (users.find(u => u[0] === selectedUser) || [0, 0])[1];
+    tRows = [{name:selectedUser, n:uTotal, detail:tools.map(t => `${t.name} ${t.n}`).join("，")}];
+    sRows = [{name:selectedUser, n:skills.reduce((s, x) => s + x.n, 0),
+      detail:skills.map(s => `${s.name} ${s.n}`).join("，")}];
+  }
+  draw("c-user-tools", tOpt);
+  draw("c-user-skills", sOpt);
+  document.getElementById("t-users").innerHTML = tbl(tRows,
+    [{t:"用户",k:"name"},{t:"总调用",k:"n",num:true},
+     {t:"各工具明细",k:"detail",f:r => esc(r.detail) || "-"},{t:"",bar:true}]);
+  document.getElementById("t-user-skills").innerHTML = tbl(sRows,
+    [{t:"用户",k:"name"},{t:"Skill 总数",k:"n",num:true},
+     {t:"Skill 明细",k:"detail",f:r => esc(r.detail) || "-"},{t:"",bar:true,color:PAL[1]}]);
+}
+
+function populateUserSelect(d){
+  if (!isAdmin){ selectedUser = USER.name; return; }
+  const sel = document.getElementById("user-sel");
+  const users = knownUsers(d);
+  const cur = sel.value || "__all__";
+  sel.innerHTML = '<option value="__all__">全部用户</option>' +
+    users.map(([u]) => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
+  sel.value = users.some(([u]) => u === cur) ? cur : "__all__";
   selectedUser = sel.value;
 }
 
-function renderUserTools(d) {
-  const users = knownUsers(d);
-  const userTools = d.user_tools || {};
-  const all = selectedUser === "__all__";
-  const title = document.getElementById("users-title");
-  const hint = document.getElementById("user-hint");
-  let pairs, tableRows;
-  if (all) {
-    const shown = users.slice(0, 15);
-    pairs = shown.map(u => [u[0], u[1]]);
-    hint.textContent = users.length > 15
-      ? `显示调用最多的前 15 位（共 ${users.length} 位用户），可用下拉选择具体用户` : "";
-    title.textContent = "用户 × 工具调用";
-    tableRows = users.map(([u, total]) => {
-      const breakdown = Object.entries(userTools[u] || {}).sort((a, b) => b[1] - a[1])
-        .map(([t, n]) => `${t} ${n}`).join("，");
-      return `<tr><td>${esc(u)}</td><td class='n'>${total}</td><td class='muted'>${esc(breakdown) || "-"}</td></tr>`;
-    }).join("");
-  } else {
-    const tools = Object.entries(userTools[selectedUser] || {}).sort((a, b) => b[1] - a[1]);
-    pairs = tools;
-    hint.textContent = "";
-    title.textContent = `${selectedUser} 的工具调用明细`;
-    const total = (users.find(u => u[0] === selectedUser) || [0, 0])[1];
-    tableRows = `<tr><td>${esc(selectedUser)}</td><td class='n'>${total}</td><td class='muted'>${esc(tools.map(([t, n]) => `${t} ${n}`).join("，")) || "-"}</td></tr>`;
-  }
-  if (!userChart) {
-    userChart = hbar("users", pairs, "#34d399");
-  } else {
-    updateBar(userChart, pairs);
-  }
-  document.getElementById("t-users").innerHTML =
-    "<tr><th>用户</th><th class='n'>总调用</th><th>各工具明细</th></tr>" +
-    (tableRows || "<tr><td colspan='3' class='muted'>暂无带用户名的数据（旧 schema 记录无 user 字段）</td></tr>");
+let activeTab = "overview";
+const renderedTabs = new Set(["overview"]);
+
+function renderTabCharts(name, d){
+  if (name === "overview") renderOverview(d);
+  else if (name === "tool") renderToolTab(d);
+  else if (name === "skill") renderSkillTab(d);
+  else if (name === "user") renderUserTab(d);
 }
 
-function renderUserSkills(d) {
-  const users = knownUsers(d);
-  const userSkills = d.user_skills || {};
-  const all = selectedUser === "__all__";
-  const title = document.getElementById("user-skills-title");
-  let labels, datasets, tableRows;
-  if (all) {
-    const shown = users.slice(0, 15);
-    const names = shown.map(u => u[0]);
-    const skillTotals = {};
-    for (const u of names) for (const [s, n] of Object.entries(userSkills[u] || {})) skillTotals[s] = (skillTotals[s] || 0) + n;
-    const topSkills = Object.entries(skillTotals).sort((a, b) => b[1] - a[1]).slice(0, 8).map(p => p[0]);
-    labels = names;
-    datasets = topSkills.map((s, i) => ({
-      label: s, data: names.map(u => (userSkills[u] || {})[s] || 0),
-      backgroundColor: PALETTE[i % PALETTE.length], borderRadius: 3 }));
-    title.textContent = "用户 × Skill 调用明细";
-    tableRows = users.map(([u]) => {
-      const breakdown = Object.entries(userSkills[u] || {}).sort((a, b) => b[1] - a[1])
-        .map(([s, n]) => `${s} ${n}`).join("，");
-      const total = Object.values(userSkills[u] || {}).reduce((a, b) => a + b, 0);
-      return `<tr><td>${esc(u)}</td><td class='n'>${total}</td><td class='muted'>${esc(breakdown) || "-"}</td></tr>`;
-    }).join("");
-  } else {
-    const skills = Object.entries(userSkills[selectedUser] || {}).sort((a, b) => b[1] - a[1]);
-    labels = skills.map(p => p[0]);
-    datasets = [{ label: selectedUser, data: skills.map(p => p[1]), backgroundColor: "#34d399", borderRadius: 3 }];
-    title.textContent = `${selectedUser} 的 Skill 调用明细`;
-    const total = skills.reduce((a, b) => a + b[1], 0);
-    tableRows = `<tr><td>${esc(selectedUser)}</td><td class='n'>${total}</td><td class='muted'>${esc(skills.map(([s, n]) => `${s} ${n}`).join("，")) || "-"}</td></tr>`;
-  }
-  if (!userSkillChart) {
-    userSkillChart = new Chart(document.getElementById("user-skills"), {
-      type: "bar",
-      data: { labels, datasets },
-      options: { indexAxis: "y", responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: "bottom", labels: { color: "#94a3b8", boxWidth: 12, font: { size: 11 } } } },
-        scales: { x: { stacked: true, beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } },
-                  y: { stacked: true, ticks: { color: "#cbd5e1" }, grid: { display: false } } } }
-    });
-  } else {
-    userSkillChart.data.labels = labels;
-    userSkillChart.data.datasets = datasets;
-    userSkillChart.options.plugins.legend.display = all;
-    userSkillChart.update();
-  }
-  document.getElementById("t-user-skills").innerHTML =
-    "<tr><th>用户</th><th class='n'>Skill 总数</th><th>Skill 明细</th></tr>" +
-    (tableRows || "<tr><td colspan='3' class='muted'>暂无带用户名的 skill 数据</td></tr>");
-}
-
-function render(d) {
-  document.getElementById("c-total").textContent = d.total;
-  document.getElementById("c-clients").textContent =
-    Object.keys(d.by_client || {}).filter(c => c !== "<unknown>").length;
-  document.getElementById("c-users").textContent =
-    Object.keys(d.by_user || {}).filter(u => u !== "<unknown>").length;
-  document.getElementById("c-last").textContent = d.last_timestamp || "-";
-
-  const skills = Object.entries(d.by_skill || {});
-  const tools = Object.entries(d.by_tool || {});
-  const top10 = skills.slice(0, 10);
-  const days = Object.entries(d.by_day || {}).sort();
-
-  if (!topSkillChart) {
-    topSkillChart = hbar("topskills", top10, "#38bdf8");
-    skillChart = hbar("skills", skills, "#38bdf8");
-    toolChart = hbar("tools", tools, "#a78bfa");
-    dailyChart = new Chart(document.getElementById("daily"), {
-      type: "line",
-      data: { labels: days.map(p => p[0]), datasets: [{ data: days.map(p => p[1]),
-        borderColor: "#34d399", backgroundColor: "rgba(52,211,153,.15)", fill: true, tension: .3 }] },
-      options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { x: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } },
-                  y: { beginAtZero: true, ticks: { color: "#94a3b8", precision: 0 }, grid: { color: "#1e293b" } } } }
-    });
-  } else {
-    updateBar(topSkillChart, top10);
-    updateBar(skillChart, skills);
-    updateBar(toolChart, tools);
-    updateBar(dailyChart, days);
-  }
-
-  const sel = document.getElementById("tool-sel");
-  const toolNames = Object.keys(d.tool_days || {});
-  const current = sel.value;
-  sel.innerHTML = toolNames.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("")
-    || "<option value=''>（暂无 tool 数据）</option>";
-  if (toolNames.includes(current)) sel.value = current;
-  renderToolDaily();
-  populateSkillSelect(d);
+function renderAll(d){
+  renderKpis(d);
   populateUserSelect(d);
-  renderUserTools(d);
-  renderUserSkills(d);
-
-  const rows = (pairs) => "<tr><th>名称</th><th class='n'>次数</th></tr>" +
-    pairs.map(p => `<tr><td>${esc(p[0])}</td><td class='n'>${p[1]}</td></tr>`).join("");
-  document.getElementById("t-skills").innerHTML = rows(skills);
-  document.getElementById("t-tools").innerHTML = rows(tools);
+  populateUserFilter("tool-user-sel", d);
+  populateUserFilter("skill-user-sel", d);
+  renderTabCharts(activeTab, d);
 }
 
-function load() {
-  fetch("/v1/stats").then(r => r.json()).then(d => { DATA = d; render(d); }).catch(() => {});
+function load(){
+  fetch("/v1/stats").then(r => {
+    if (r.status === 401){ window.location.href = "/login"; throw new Error("unauthorized"); }
+    return r.json();
+  }).then(d => { DATA = d; renderAll(d); }).catch(() => {});
 }
 
-render(DATA);
-document.getElementById("tool-sel").addEventListener("change", renderToolDaily);
-document.getElementById("days-sel").addEventListener("change", renderToolDaily);
-document.getElementById("skill-sel").addEventListener("change", renderSkillDaily);
-document.getElementById("skill-days-sel").addEventListener("change", renderSkillDaily);
+async function api(url, body){
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  if (r.status === 401){ window.location.href = "/login"; throw new Error("unauthorized"); }
+  return r;
+}
+
+function adminMsg(text, ok){
+  const el = document.getElementById("admin-msg");
+  el.textContent = text;
+  el.style.color = ok ? "#1d9e75" : "#d4537e";
+}
+
+async function loadUsers(){
+  const r = await fetch("/admin/users");
+  if (!r.ok) return;
+  const d = await r.json();
+  document.getElementById("t-admin").innerHTML =
+    "<table><thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead><tbody>" +
+    d.users.map(u => {
+      const toggleRole = u.role === "admin" ? "设为普通" : "设为管理员";
+      return `<tr><td>${esc(u.username)}</td><td>${u.role === "admin" ? "管理员" : "普通用户"}</td>` +
+        `<td class="muted">${esc(u.created_at)}</td>` +
+        `<td><a href="#" class="op" data-op="pw" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">重置密码</a> · ` +
+        `<a href="#" class="op" data-op="role" data-u="${esc(u.username)}" data-role="${u.role === "admin" ? "user" : "admin"}" style="color:#3b7ddd;text-decoration:none">${toggleRole}</a></td></tr>`;
+    }).join("") + "</tbody></table>";
+}
+
+document.addEventListener("click", async (ev) => {
+  const a = ev.target.closest(".op");
+  if (!a) return;
+  ev.preventDefault();
+  const u = a.dataset.u, op = a.dataset.op;
+  let url, body;
+  if (op === "pw"){
+    const pw = prompt(`为 ${u} 设置新密码（至少 8 位）：`);
+    if (!pw) return;
+    url = `/admin/users/${encodeURIComponent(u)}/password`; body = { password: pw };
+  } else {
+    url = `/admin/users/${encodeURIComponent(u)}/role`; body = { role: a.dataset.role };
+  }
+  const r = await api(url, body);
+  adminMsg(r.ok ? "操作成功" : ((await r.json()).detail || "操作失败"), r.ok);
+  if (r.ok) loadUsers();
+});
+
+document.getElementById("nu-add").onclick = async () => {
+  const body = { username: document.getElementById("nu-name").value.trim(),
+                 password: document.getElementById("nu-pass").value,
+                 role: document.getElementById("nu-role").value };
+  const r = await api("/admin/users", body);
+  adminMsg(r.ok ? "用户已创建" : ((await r.json()).detail || "创建失败"), r.ok);
+  if (r.ok){
+    document.getElementById("nu-name").value = "";
+    document.getElementById("nu-pass").value = "";
+    loadUsers();
+  }
+};
+
+document.getElementById("pw-save").onclick = async () => {
+  const el = document.getElementById("pw-msg");
+  const r = await api("/me/password", { old_password: document.getElementById("pw-old").value,
+                                       new_password: document.getElementById("pw-new").value });
+  el.textContent = r.ok ? "密码已修改" : ((await r.json()).detail || "修改失败");
+  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
+  if (r.ok){
+    document.getElementById("pw-old").value = "";
+    document.getElementById("pw-new").value = "";
+  }
+};
+
+if (USER && USER.name){
+  document.getElementById("user-box").innerHTML =
+    `${esc(USER.name)}${isAdmin ? ' <span class="pill">管理员</span>' : ""}` +
+    ' · <a href="#" id="lo-link">登出</a>';
+  document.getElementById("lo-link").onclick = async (e) => {
+    e.preventDefault();
+    await fetch("/logout", { method: "POST" });
+    window.location.href = "/login";
+  };
+  if (isAdmin){
+    document.getElementById("admin-card").style.display = "";
+    loadUsers();
+  } else {
+    document.getElementById("k-users-card").style.display = "none";
+    document.getElementById("tool-user-wrap").style.display = "none";
+    document.getElementById("skill-user-wrap").style.display = "none";
+    document.getElementById("tab-user").style.display = "none";
+  }
+}
+
+renderAll(DATA);
+
+document.getElementById("tool-user-sel").addEventListener("change", () => renderToolTab(DATA));
+document.getElementById("tool-sel").addEventListener("change", () => renderToolTab(DATA));
+document.getElementById("days-sel").addEventListener("change", () => renderToolTab(DATA));
+document.getElementById("skill-user-sel").addEventListener("change", () => renderSkillTab(DATA));
+document.getElementById("skill-sel").addEventListener("change", () => renderSkillTab(DATA));
+document.getElementById("skill-days-sel").addEventListener("change", () => renderSkillTab(DATA));
 document.getElementById("user-sel").addEventListener("change", () => {
   selectedUser = document.getElementById("user-sel").value;
-  renderUserTools(DATA);
-  renderUserSkills(DATA);
+  renderUserTab(DATA);
 });
+
+document.querySelectorAll(".tab").forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("on"));
+    document.querySelectorAll(".panel").forEach(x => x.classList.remove("on"));
+    t.classList.add("on");
+    const name = t.dataset.tab;
+    document.getElementById("p-" + name).classList.add("on");
+    activeTab = name;
+    if (!renderedTabs.has(name)){ renderedTabs.add(name); renderTabCharts(name, DATA); }
+    setTimeout(resizeAll, 30);
+  };
+});
+
 setInterval(() => { if (document.getElementById("auto").checked) load(); }, 30000);
 </script>
 </body>
