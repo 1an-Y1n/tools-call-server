@@ -11,14 +11,16 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import sys
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -28,7 +30,11 @@ DB_PATH = Path(os.environ.get("TOOL_CALL_SERVER_DB", SERVER_DIR / "data" / "dash
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-SESSION_MAX_AGE = int(os.environ.get("SESSION_MAX_AGE", "28800"))
+SESSION_MAX_AGE = 28800
+try:
+    SESSION_MAX_AGE = int(os.environ.get("SESSION_MAX_AGE", "28800"))
+except ValueError:
+    pass
 
 
 def _load_session_secret():
@@ -36,13 +42,13 @@ def _load_session_secret():
     if secret:
         return secret
     path = SERVER_DIR / "data" / "session.secret"
-    if path.exists():
-        return path.read_text().strip()
-    secret = secrets.token_urlsafe(48)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(secret)
     try:
-        path.chmod(0o600)
+        secret = path.read_text().strip() if path.exists() else ""
+        if not secret:
+            secret = secrets.token_urlsafe(48)
+            fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(secret)
     except OSError:
         pass
     return secret
@@ -50,13 +56,31 @@ def _load_session_secret():
 
 SESSION_SECRET = _load_session_secret()
 
-app = FastAPI(title="tools-call-server")
+
+@asynccontextmanager
+async def lifespan(app):
+    seed_default_admin()
+    yield
+
+
+app = FastAPI(title="tools-call-server", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     max_age=SESSION_MAX_AGE,
     same_site="lax",
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    if request.url.path in ("/dashboard", "/v1/stats"):
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -124,27 +148,41 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+INGEST_MAX_BYTES = 10_000_000
+
+
 def row_from_record(record, raw):
+    if not isinstance(record.get("type"), str) or not isinstance(record.get("timestamp"), str):
+        raise ValueError("type and timestamp must be strings")
     collector = record.get("collector") or {}
+    if not isinstance(collector, dict):
+        collector = {}
+
+    def _s(v):
+        return v if isinstance(v, str) else None
+
+    def _i(v):
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
     input_keys = record.get("input_keys")
     return (
         now_iso(),
-        record.get("schema_version"),
-        record.get("type"),
-        record.get("timestamp"),
-        record.get("client_id"),
-        record.get("user"),
-        record.get("session_id"),
-        record.get("prompt_id"),
-        record.get("project_dir"),
-        record.get("host"),
-        record.get("tool_name"),
-        record.get("status"),
+        _i(record.get("schema_version")),
+        _s(record.get("type")),
+        _s(record.get("timestamp")),
+        _s(record.get("client_id")),
+        _s(record.get("user")),
+        _s(record.get("session_id")),
+        _s(record.get("prompt_id")),
+        _s(record.get("project_dir")),
+        _s(record.get("host")),
+        _s(record.get("tool_name")),
+        _s(record.get("status")),
         json.dumps(input_keys, ensure_ascii=False) if isinstance(input_keys, list) else None,
-        record.get("skill"),
-        record.get("skill_command"),
-        collector.get("name"),
-        collector.get("version"),
+        _s(record.get("skill")),
+        _s(record.get("skill_command")),
+        _s(collector.get("name")),
+        _s(collector.get("version")),
         raw,
     )
 
@@ -154,12 +192,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/v1/events")
-async def ingest(request: Request):
-    body = (await request.body()).decode("utf-8", errors="replace")
-    if not body.strip():
-        raise HTTPException(status_code=400, detail="empty body")
-
+def do_ingest(body):
     rows, rejects = [], []
     for line in body.splitlines():
         line = line.strip()
@@ -170,8 +203,8 @@ async def ingest(request: Request):
             if not isinstance(record, dict):
                 raise ValueError("record is not a JSON object")
             rows.append(row_from_record(record, line))
-        except (json.JSONDecodeError, ValueError) as exc:
-            rejects.append((now_iso(), line, str(exc)))
+        except Exception as exc:
+            rejects.append((now_iso(), line, f"{type(exc).__name__}: {exc}"))
 
     with closing(connect()) as conn:
         if rows:
@@ -189,12 +222,25 @@ async def ingest(request: Request):
     return {"accepted": len(rows), "rejected": len(rejects)}
 
 
+@app.post("/v1/events")
+async def ingest(request: Request):
+    cl = request.headers.get("content-length", "")
+    if cl.isdigit() and int(cl) > INGEST_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="body too large")
+    body = (await request.body()).decode("utf-8", errors="replace")
+    if not body.strip():
+        raise HTTPException(status_code=400, detail="empty body")
+    if len(body) > INGEST_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="body too large")
+    return await run_in_threadpool(do_ingest, body)
+
+
 @app.get("/v1/stats")
 def stats(request: Request):
-    user = request.session.get("user")
+    user = current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="not authenticated")
-    return compute_stats(None if user.get("role") == "admin" else user["name"])
+    return compute_stats(None if user["role"] == "admin" else user["name"])
 
 
 # ---- local accounts ----
@@ -247,15 +293,40 @@ def get_user(username):
         return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
 
+_DUMMY_HASH = None
+
+
+def _dummy_hash():
+    # Precomputed once: equalizes PBKDF2 cost between "unknown user" and
+    # "wrong password" logins so response timing cannot enumerate usernames
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password("timing-equalizer")
+    return _DUMMY_HASH
+
+
+def current_user(request: Request):
+    # Revalidate the session against the DB on every guarded request so role
+    # changes and account deletions take effect immediately
+    sess = request.session.get("user")
+    if not sess:
+        return None
+    row = get_user(sess["name"])
+    if not row:
+        request.session.clear()
+        return None
+    return {"name": row["username"], "role": row["role"]}
+
+
 def require_user(request: Request):
-    user = request.session.get("user")
+    user = current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="not authenticated")
     return user
 
 
 def require_admin(user: dict = Depends(require_user)):
-    if user.get("role") != "admin":
+    if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
 
@@ -268,7 +339,13 @@ def login_page():
 @app.post("/login")
 def login(body: LoginBody, request: Request):
     username = body.username.strip()
+    if not username or len(username) > 64:
+        raise HTTPException(status_code=400, detail="用户名长度需 1-64 字符")
+    if len(body.password) > 1024:
+        raise HTTPException(status_code=400, detail="密码过长")
     row = get_user(username)
+    if not row:
+        verify_password(body.password, _dummy_hash())
     if not row or not verify_password(body.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     request.session["user"] = {"name": username, "role": row["role"]}
@@ -312,10 +389,10 @@ def admin_list_users(user: dict = Depends(require_admin)):
 @app.post("/admin/users")
 def admin_create_user(body: NewUserBody, user: dict = Depends(require_admin)):
     username = body.username.strip()
-    if not username:
-        raise HTTPException(status_code=400, detail="用户名不能为空")
-    if len(body.password) < 8:
-        raise HTTPException(status_code=400, detail="密码至少 8 位")
+    if not username or len(username) > 64 or any(ord(c) < 32 for c in username):
+        raise HTTPException(status_code=400, detail="用户名长度需 1-64 字符且不含控制字符")
+    if len(body.password) < 8 or len(body.password) > 1024:
+        raise HTTPException(status_code=400, detail="密码长度需 8-1024 位")
     if body.role not in ("admin", "user"):
         raise HTTPException(status_code=400, detail="role 必须是 admin 或 user")
     try:
@@ -332,8 +409,8 @@ def admin_create_user(body: NewUserBody, user: dict = Depends(require_admin)):
 
 @app.post("/admin/users/{username}/password")
 def admin_reset_password(username: str, body: ResetPasswordBody, user: dict = Depends(require_admin)):
-    if len(body.password) < 8:
-        raise HTTPException(status_code=400, detail="密码至少 8 位")
+    if len(body.password) < 8 or len(body.password) > 1024:
+        raise HTTPException(status_code=400, detail="密码长度需 8-1024 位")
     with closing(connect()) as conn:
         cur = conn.execute(
             "UPDATE users SET password_hash = ? WHERE username = ?",
@@ -351,6 +428,14 @@ def admin_set_role(username: str, body: RoleBody, user: dict = Depends(require_a
         raise HTTPException(status_code=400, detail="role 必须是 admin 或 user")
     if username == user["name"]:
         raise HTTPException(status_code=400, detail="不能修改自己的角色")
+    row = get_user(username)
+    if not row:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if body.role == "user" and row["role"] == "admin":
+        with closing(connect()) as conn:
+            admins = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
+        if admins <= 1:
+            raise HTTPException(status_code=400, detail="不能降级最后一名管理员")
     with closing(connect()) as conn:
         cur = conn.execute("UPDATE users SET role = ? WHERE username = ?", (body.role, username))
         conn.commit()
@@ -421,9 +506,11 @@ def compute_stats(user=None):
             args,
         ).fetchall()
         user_tool_day_rows = conn.execute(
-            "SELECT user, tool_name, substr(timestamp, 1, 10) AS day, COUNT(*) AS n FROM events"
-            " WHERE type = 'tool_call' AND user IS NOT NULL AND tool_name IS NOT NULL"
-            f"{flt} GROUP BY user, tool_name, day",
+            "SELECT user, CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
+            " substr(timestamp, 1, 10) AS day, COUNT(*) AS n FROM events"
+            " WHERE type IN ('tool_call', 'skill_invoke')"
+            " AND (type = 'skill_invoke' OR tool_name IS NOT NULL) AND user IS NOT NULL"
+            f"{flt} GROUP BY user, tool, day",
             args,
         ).fetchall()
         user_skill_day_rows = conn.execute(
@@ -444,10 +531,13 @@ def compute_stats(user=None):
         for r in skill_day_rows:
             skill_days.setdefault(skill_label(r["skill"], r["skill_command"]), {})[r["day"]] = r["n"]
         for r in user_tool_day_rows:
-            user_tool_days.setdefault(r["user"], {}).setdefault(r["tool_name"], {})[r["day"]] = r["n"]
+            user_tool_days.setdefault(r["user"], {}).setdefault(r["tool"], {})[r["day"]] = r["n"]
         for r in user_skill_day_rows:
             user_skill_days.setdefault(r["user"], {}).setdefault(
                 skill_label(r["skill"], r["skill_command"]), {})[r["day"]] = r["n"]
+
+    def _valid_day(day):
+        return bool(day) and len(day) == 10 and day[4] == "-" and day[7] == "-"
 
     return {
         "total": total,
@@ -455,7 +545,7 @@ def compute_stats(user=None):
         "by_user": {(r["user"] or "<unknown>"): r["n"] for r in by_user},
         "by_tool": {r["tool"]: r["n"] for r in by_tool},
         "by_skill": {skill_label(r["skill"], r["skill_command"]): r["n"] for r in by_skill_rows},
-        "by_day": {r["day"]: r["n"] for r in by_day},
+        "by_day": {r["day"]: r["n"] for r in by_day if _valid_day(r["day"])},
         "tool_days": tool_days,
         "skill_days": skill_days,
         "user_tools": user_tools,
@@ -481,16 +571,28 @@ def echarts_js():
     return Response(ECHARTS_PATH.read_bytes(), media_type="application/javascript")
 
 
+def _json_for_script(obj):
+    # Embed JSON safely inside a <script> block: escape < > & so a data value
+    # like "</script>" cannot break out of the script element
+    return (json.dumps(obj, ensure_ascii=False)
+            .replace("<", "\\u003c").replace(">", "\\u003e")
+            .replace("&", "\\u0026")
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
-    user = request.session.get("user")
+    user = current_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
+    markers = {
+        "__USER__": _json_for_script(user),
+        "__DATA__": _json_for_script(compute_stats(None if user["role"] == "admin" else user["name"])),
+        "__GENERATED__": now_iso(),
+    }
     html = DASHBOARD_PATH.read_text(encoding="utf-8")
-    html = html.replace("__USER__", json.dumps(user, ensure_ascii=False))
-    stats = compute_stats(None if user.get("role") == "admin" else user["name"])
-    html = html.replace("__DATA__", json.dumps(stats, ensure_ascii=False))
-    html = html.replace("__GENERATED__", now_iso())
+    # Single pass: a data value containing a marker string cannot be re-substituted
+    html = re.sub(r"__(?:DATA|USER|GENERATED)__", lambda m: markers[m.group()], html)
     return html
 
 
@@ -516,6 +618,3 @@ def seed_default_admin():
             )
         except sqlite3.IntegrityError:
             pass
-
-
-seed_default_admin()

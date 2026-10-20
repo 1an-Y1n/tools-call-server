@@ -186,7 +186,7 @@ let isAdmin = !!(USER && USER.role === "admin");
 let selectedUser = "__all__";
 
 const esc = (s) => String(s == null ? "" : s).replace(/&/g, "\u0026amp;").replace(/</g, "\u0026lt;")
-  .replace(/>/g, "\u0026gt;").replace(/"/g, "\u0026quot;");
+  .replace(/>/g, "\u0026gt;").replace(/"/g, "\u0026quot;").replace(/'/g, "\u0026#39;");
 
 const PAL = ['#3b7ddd','#1d9e75','#e8a33d','#d4537e','#7f77dd','#43a7c4','#8fbf4d','#e07b58'];
 const chartCache = {};
@@ -210,7 +210,7 @@ function optBarH(rows, color){
   const total = rows.reduce((s,r) => s + r.n, 0) || 1;
   return {
     grid:{left:8,right:56,top:10,bottom:8,containLabel:true},
-    tooltip:{trigger:"item",formatter:p => p.name + "<br/>" + p.value + " 次（" + (p.value/total*100).toFixed(1) + "%）"},
+    tooltip:{trigger:"item",formatter:p => esc(p.name) + "<br/>" + p.value + " 次（" + (p.value/total*100).toFixed(1) + "%）"},
     xAxis:Object.assign({type:"value",splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
     yAxis:Object.assign({type:"category",data:rows.map(r => r.name)}, axisCommon()),
     series:[{type:"bar",barMaxWidth:20,
@@ -222,7 +222,7 @@ function optBarH(rows, color){
 function optLine(buckets, values){
   return {
     grid:{left:8,right:24,top:24,bottom:8,containLabel:true},
-    tooltip:{trigger:"axis"},
+    tooltip:{trigger:"axis",formatter:ps => ps.map(p => esc(p.name) + " " + p.value).join("<br/>")},
     xAxis:Object.assign({type:"category",data:buckets,boundaryGap:false}, axisCommon()),
     yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
     series:[{type:"line",smooth:true,symbolSize:6,data:values,itemStyle:{color:PAL[0]},
@@ -234,7 +234,8 @@ function optLine(buckets, values){
 function optStack(buckets, series){
   return {
     grid:{left:8,right:20,top:34,bottom:8,containLabel:true},
-    tooltip:{trigger:"axis",axisPointer:{type:"shadow"}},
+    tooltip:{trigger:"axis",axisPointer:{type:"shadow"},
+      formatter:ps => esc(ps[0].name) + "<br/>" + ps.map(p => esc(p.seriesName) + " " + p.value).join("<br/>")},
     legend:{type:"scroll",top:0,textStyle:{fontSize:11,color:"#4b5563"},itemWidth:10,itemHeight:10},
     xAxis:Object.assign({type:"category",data:buckets}, axisCommon()),
     yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
@@ -289,9 +290,10 @@ function knownUsers(d){
 }
 
 function lastNDays(n){
-  const all = Object.keys(DATA.by_day || {}).sort();
+  const all = Object.keys(DATA.by_day || {}).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
   const anchor = all.length ? all[all.length - 1] : new Date().toISOString().slice(0, 10);
   const end = new Date(anchor + "T00:00:00Z");
+  if (isNaN(end.getTime())) return [];
   const days = [];
   for (let i = n - 1; i >= 0; i--) days.push(new Date(end.getTime() - i * 86400000).toISOString().slice(0, 10));
   return days;
@@ -431,7 +433,6 @@ function populateUserSelect(d){
 }
 
 let activeTab = "overview";
-const renderedTabs = new Set(["overview"]);
 
 function renderTabCharts(name, d){
   if (name === "overview") renderOverview(d);
@@ -468,8 +469,13 @@ function adminMsg(text, ok){
   el.style.color = ok ? "#1d9e75" : "#d4537e";
 }
 
+async function errDetail(r){
+  try { return (await r.json()).detail || "操作失败"; } catch { return "操作失败"; }
+}
+
 async function loadUsers(){
   const r = await fetch("/admin/users");
+  if (r.status === 401){ window.location.href = "/login"; return; }
   if (!r.ok) return;
   const d = await r.json();
   document.getElementById("t-admin").innerHTML =
@@ -497,7 +503,7 @@ document.addEventListener("click", async (ev) => {
     url = `/admin/users/${encodeURIComponent(u)}/role`; body = { role: a.dataset.role };
   }
   const r = await api(url, body);
-  adminMsg(r.ok ? "操作成功" : ((await r.json()).detail || "操作失败"), r.ok);
+  adminMsg(r.ok ? "操作成功" : await errDetail(r), r.ok);
   if (r.ok) loadUsers();
 });
 
@@ -506,7 +512,7 @@ document.getElementById("nu-add").onclick = async () => {
                  password: document.getElementById("nu-pass").value,
                  role: document.getElementById("nu-role").value };
   const r = await api("/admin/users", body);
-  adminMsg(r.ok ? "用户已创建" : ((await r.json()).detail || "创建失败"), r.ok);
+  adminMsg(r.ok ? "用户已创建" : await errDetail(r), r.ok);
   if (r.ok){
     document.getElementById("nu-name").value = "";
     document.getElementById("nu-pass").value = "";
@@ -518,7 +524,7 @@ document.getElementById("pw-save").onclick = async () => {
   const el = document.getElementById("pw-msg");
   const r = await api("/me/password", { old_password: document.getElementById("pw-old").value,
                                        new_password: document.getElementById("pw-new").value });
-  el.textContent = r.ok ? "密码已修改" : ((await r.json()).detail || "修改失败");
+  el.textContent = r.ok ? "密码已修改" : await errDetail(r);
   el.style.color = r.ok ? "#1d9e75" : "#d4537e";
   if (r.ok){
     document.getElementById("pw-old").value = "";
@@ -567,7 +573,7 @@ document.querySelectorAll(".tab").forEach(t => {
     const name = t.dataset.tab;
     document.getElementById("p-" + name).classList.add("on");
     activeTab = name;
-    if (!renderedTabs.has(name)){ renderedTabs.add(name); renderTabCharts(name, DATA); }
+    renderTabCharts(name, DATA);
     setTimeout(resizeAll, 30);
   };
 });

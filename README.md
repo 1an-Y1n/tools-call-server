@@ -46,7 +46,7 @@ Environment:
 ## Login (local accounts)
 
 `/dashboard` and `/v1/stats` require login; `/v1/events`, `/health` and
-`/chart.js` stay open for collectors and probes. Two roles:
+`/echarts` stay open for collectors and probes. Two roles:
 
 - **admin** — sees all data; manages users in the dashboard's 用户管理 panel
   (add / reset password / change role)
@@ -56,7 +56,7 @@ Environment:
 
 **Default admin**: on the first start (empty users table) the server creates
 `SUPER_ADMIN` with password `SUPER_ADMIN` — no manual step, no sqlite3 CLI
-needed. Log in, change that password via 改密码 in the header, then manage all
+needed. Log in, change that password via 改密码 (账号 tab), then manage all
 further users in the GUI (用户管理 panel: add / reset password / change role).
 The seed runs only while the users table is empty, so a changed password
 survives restarts.
@@ -74,7 +74,7 @@ print('已重置')
 " "$HASH"
 ```
 
-Users change their own password via 改密码 in the dashboard header. Passwords
+Users change their own password via 改密码 in the 账号 tab. Passwords
 are stored as PBKDF2-SHA256 hashes (600k iterations, per-user salt).
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
@@ -104,7 +104,7 @@ HTML dashboard (light theme, ECharts served locally from `static/` — no CDN or
 internet needed at view time; `GET /` redirects here). Layout: KPI cards on top
 (total / clients / users / last timestamp), then tabs — 总览 (daily trend, tool
 and skill counts, detail tables), Tool 分析 and Skill 分析 (daily drill-downs
-filterable by 时间范围 × 用户 × tool/skill name with 7/14/30/90-day windows),
+filterable by 时间范围 × 用户 × tool/skill name with 7/14/30/90/180/365-day windows),
 用户分析 (user × tool / user × skill stacked charts + tables; admins can pick
 any user, regular users are locked to their own records), 账号 (change own
 password; admins additionally get the 用户管理 panel). Data is embedded
