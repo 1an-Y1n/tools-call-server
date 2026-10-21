@@ -42,8 +42,8 @@ Environment:
 | `TOOL_CALL_SERVER_DB` | `<server dir>/data/dashboard.db` | SQLite database file (events/rejects + user accounts) |
 | `SESSION_SECRET` | auto | Signs session cookies; auto-generated to `data/session.secret` (chmod 600) on first start |
 | `SESSION_MAX_AGE` | `28800` | Session lifetime in seconds (8 h) |
-| `SMTP_HOST` | `smtp.office365.com` | SMTP server for report emails (Outlook) |
-| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_HOST` | — (empty) | SMTP server for report emails — the internal relay or Office 365; configured in the GUI, env is only a fallback |
+| `SMTP_PORT` | — (empty) | SMTP port; falls back to 25 when unset |
 | `SMTP_USER` / `SMTP_PASSWORD` | — | Sender mailbox + its password (or app password); leave empty for relays without auth |
 | `SMTP_SECURITY` | `starttls` | `starttls` / `ssl` / `none` |
 

@@ -59,11 +59,11 @@ def _load_session_secret():
 
 SESSION_SECRET = _load_session_secret()
 
-# SMTP for report emails; defaults to Office 365 (Outlook). Credentials come
-# from env: SMTP_USER (sender mailbox) + SMTP_PASSWORD (mailbox password or
-# app password). SMTP_SECURITY: starttls (default) | ssl | none
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.office365.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+# SMTP for report emails. No address is baked in: the admin fills the relay
+# or Office 365 details in the GUI (stored in DB); env vars are fallback
+# defaults and stay empty unless set. SMTP_SECURITY: starttls | ssl | none
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "0"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")
@@ -557,15 +557,16 @@ def send_html_mail(to, subject, html):
     cfg = get_smtp_config()
     if not cfg["host"] or not cfg["user"]:
         raise RuntimeError("SMTP 未配置：请填写服务器与账号后保存，再发送")
+    port = cfg["port"] or 25
     msg = MIMEMultipart("alternative")
     msg["From"] = cfg["user"]
     msg["To"] = to
     msg["Subject"] = subject
     msg.attach(MIMEText(html, "html", "utf-8"))
     if cfg["security"] == "ssl":
-        s = smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=30)
+        s = smtplib.SMTP_SSL(cfg["host"], port, timeout=30)
     else:
-        s = smtplib.SMTP(cfg["host"], cfg["port"], timeout=30)
+        s = smtplib.SMTP(cfg["host"], port, timeout=30)
     with s:
         s.ehlo()
         if cfg["security"] == "starttls":
