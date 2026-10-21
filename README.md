@@ -98,14 +98,15 @@ with inline progress bars (no JS — renders in Outlook).
 
 The sender (SMTP) configuration lives in the 账号 tab's 邮件发送设置 card
 (admin-only): server / port / security (STARTTLS default, SSL, none) /
-sender mailbox + password, plus a 测试发送 button to verify. The sender
-address shown in recipients' inboxes is the sender mailbox itself.
-Settings are stored in the DB and override the `SMTP_*` environment
-variables (which remain as fallback defaults); the password is write-only —
-it is never returned to the page. For Microsoft 365 the sender mailbox must
-allow SMTP AUTH — if the tenant disables it, ask IT to enable SMTP AUTH, or
-use an app password when MFA is on. Without any sender configured, the send
-endpoints return a clear error.
+sender mailbox, plus a 测试发送 button to verify. The sender address shown
+in recipients' inboxes is the sender mailbox itself. The GUI has no
+password field — the internal relay needs none; for authenticated Office
+365 sending set `SMTP_PASSWORD` via env. Settings are stored in the DB and
+override the `SMTP_*` environment variables (which remain as fallback
+defaults). For Microsoft 365 the sender mailbox must allow SMTP AUTH — if
+the tenant disables it, ask IT to enable SMTP AUTH, or use an app password
+when MFA is on. Without any sender configured, the send endpoints return a
+clear error.
 
 **Internal relay deployment** (no auth): the company SMTP relay accepts
 plain SMTP on port 25 from internal hosts without a password — configure

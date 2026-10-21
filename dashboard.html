@@ -184,9 +184,7 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
       </div>
       <div class="toolbar">
         <span class="muted">账号</span>
-        <input id="smtp-user" size="24" placeholder="发件邮箱">
-        <span class="muted">密码</span>
-        <span class="pwwrap"><input id="smtp-pass" type="password" size="18" placeholder="留空保持不变" autocomplete="new-password"><button type="button" class="pweye" id="eye-smtp-pass" tabindex="-1"></button></span>
+        <input id="smtp-user" size="24" placeholder="发件邮箱（中继免密码）">
       </div>
       <div class="toolbar">
         <span class="muted">测试收件</span>
@@ -316,7 +314,6 @@ function bindEye(btnId, inputId){
 bindEye("eye-pw-old", "pw-old");
 bindEye("eye-pw-new", "pw-new");
 bindEye("eye-nu-pass", "nu-pass");
-bindEye("eye-smtp-pass", "smtp-pass");
 
 function knownUsers(d){
   return Object.entries(d.by_user || {}).filter(u => u[0] !== "<unknown>").sort((a,b) => b[1] - a[1]);
@@ -613,8 +610,6 @@ async function loadSmtp(){
   document.getElementById("smtp-host").value = c.host || "";
   document.getElementById("smtp-port").value = c.port || "";
   document.getElementById("smtp-user").value = c.user || "";
-  document.getElementById("smtp-pass").value = "";
-  document.getElementById("smtp-pass").placeholder = c.password_set ? "已配置（留空保持不变）" : "发件邮箱密码";
   document.getElementById("smtp-security").value = c.security || "starttls";
 }
 
@@ -626,8 +621,6 @@ document.getElementById("smtp-save").onclick = async () => {
     user: document.getElementById("smtp-user").value.trim(),
     security: document.getElementById("smtp-security").value,
   };
-  const pass = document.getElementById("smtp-pass").value;
-  if (pass) body.password = pass;
   const r = await api("/admin/smtp", body);
   el.textContent = r.ok ? "已保存" : await errDetail(r);
   el.style.color = r.ok ? "#1d9e75" : "#d4537e";
@@ -645,8 +638,6 @@ document.getElementById("smtp-test").onclick = async () => {
     user: document.getElementById("smtp-user").value.trim(),
     security: document.getElementById("smtp-security").value,
   };
-  const pass = document.getElementById("smtp-pass").value;
-  if (pass) body.password = pass;
   const sr = await api("/admin/smtp", body);
   if (!sr.ok){ el.textContent = await errDetail(sr); el.style.color = "#d4537e"; return; }
   const r = await api("/admin/smtp/test", { to });
