@@ -45,7 +45,6 @@ Environment:
 | `SMTP_HOST` | `smtp.office365.com` | SMTP server for report emails (Outlook) |
 | `SMTP_PORT` | `587` | SMTP port |
 | `SMTP_USER` / `SMTP_PASSWORD` | — | Sender mailbox + its password (or app password); leave empty for relays without auth |
-| `SMTP_FROM` | `SMTP_USER` | Sender address shown in the email |
 | `SMTP_SECURITY` | `starttls` | `starttls` / `ssl` / `none` |
 
 ## Login (local accounts)
@@ -98,7 +97,8 @@ with inline progress bars (no JS — renders in Outlook).
 
 The sender (SMTP) configuration lives in the 账号 tab's 邮件发送设置 card
 (admin-only): server / port / security (STARTTLS default, SSL, none) /
-sender mailbox + password / From address, plus a 测试发送 button to verify.
+sender mailbox + password, plus a 测试发送 button to verify. The sender
+address shown in recipients' inboxes is the sender mailbox itself.
 Settings are stored in the DB and override the `SMTP_*` environment
 variables (which remain as fallback defaults); the password is write-only —
 it is never returned to the page. For Microsoft 365 the sender mailbox must

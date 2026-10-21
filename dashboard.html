@@ -189,8 +189,6 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
         <span class="pwwrap"><input id="smtp-pass" type="password" size="18" placeholder="留空保持不变" autocomplete="new-password"><button type="button" class="pweye" id="eye-smtp-pass" tabindex="-1"></button></span>
       </div>
       <div class="toolbar">
-        <span class="muted">发件人</span>
-        <input id="smtp-from" size="24" placeholder="默认同账号">
         <span class="muted">测试收件</span>
         <input id="smtp-test-to" size="24" placeholder="test@sercomm.com">
         <button id="smtp-test">测试发送</button>
@@ -617,7 +615,6 @@ async function loadSmtp(){
   document.getElementById("smtp-user").value = c.user || "";
   document.getElementById("smtp-pass").value = "";
   document.getElementById("smtp-pass").placeholder = c.password_set ? "已配置（留空保持不变）" : "发件邮箱密码";
-  document.getElementById("smtp-from").value = c.from_addr || "";
   document.getElementById("smtp-security").value = c.security || "starttls";
 }
 
@@ -627,7 +624,6 @@ document.getElementById("smtp-save").onclick = async () => {
     host: document.getElementById("smtp-host").value.trim(),
     port: parseInt(document.getElementById("smtp-port").value, 10) || null,
     user: document.getElementById("smtp-user").value.trim(),
-    from_addr: document.getElementById("smtp-from").value.trim(),
     security: document.getElementById("smtp-security").value,
   };
   const pass = document.getElementById("smtp-pass").value;
@@ -647,7 +643,6 @@ document.getElementById("smtp-test").onclick = async () => {
     host: document.getElementById("smtp-host").value.trim(),
     port: parseInt(document.getElementById("smtp-port").value, 10) || null,
     user: document.getElementById("smtp-user").value.trim(),
-    from_addr: document.getElementById("smtp-from").value.trim(),
     security: document.getElementById("smtp-security").value,
   };
   const pass = document.getElementById("smtp-pass").value;

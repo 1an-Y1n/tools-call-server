@@ -66,17 +66,19 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.office365.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", "") or SMTP_USER
 SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")
 
 
 def get_smtp_config():
-    # DB settings (admin GUI) override the env-var defaults
+    # DB settings (admin GUI) override the env-var defaults; legacy smtp_from
+    # rows (field removed) are ignored
     cfg = {"host": SMTP_HOST, "port": SMTP_PORT, "user": SMTP_USER,
-           "password": SMTP_PASSWORD, "from": SMTP_FROM, "security": SMTP_SECURITY}
+           "password": SMTP_PASSWORD, "security": SMTP_SECURITY}
     with closing(connect()) as conn:
         for k, v in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'smtp_%'"):
             key = k[len("smtp_"):]
+            if key == "from":
+                continue
             cfg[key] = int(v) if key == "port" and v.isdigit() else v
     return cfg
 
@@ -553,10 +555,10 @@ def esc_html(s):
 
 def send_html_mail(to, subject, html):
     cfg = get_smtp_config()
-    if not cfg["host"] or not (cfg["from"] or cfg["user"]):
-        raise RuntimeError("SMTP 未配置：请填写服务器与账号（发件人）后保存，再发送")
+    if not cfg["host"] or not cfg["user"]:
+        raise RuntimeError("SMTP 未配置：请填写服务器与账号后保存，再发送")
     msg = MIMEMultipart("alternative")
-    msg["From"] = cfg["from"] or cfg["user"]
+    msg["From"] = cfg["user"]
     msg["To"] = to
     msg["Subject"] = subject
     msg.attach(MIMEText(html, "html", "utf-8"))
@@ -570,7 +572,7 @@ def send_html_mail(to, subject, html):
             s.starttls()
             s.ehlo()
         if cfg["password"]:
-            s.login(cfg["user"], cfg["from"] or cfg["user"])
+            s.login(cfg["user"], cfg["user"])
         s.send_message(msg)
 
 
@@ -698,7 +700,6 @@ class SmtpBody(BaseModel):
     port: int | None = None
     user: str | None = None
     password: str | None = None
-    from_addr: str | None = None
     security: str | None = None
 
 
@@ -711,8 +712,7 @@ def admin_get_smtp(user: dict = Depends(require_admin)):
     cfg = get_smtp_config()
     # 密码只写不可读：只返回是否已配置
     return {"host": cfg["host"], "port": cfg["port"], "user": cfg["user"],
-            "password_set": bool(cfg["password"]), "from_addr": cfg["from"],
-            "security": cfg["security"]}
+            "password_set": bool(cfg["password"]), "security": cfg["security"]}
 
 
 @app.post("/admin/smtp")
@@ -727,8 +727,6 @@ def admin_set_smtp(body: SmtpBody, user: dict = Depends(require_admin)):
     if body.password is not None:
         # 字段存在但为空 = 清除密码（改用免认证中继）；字段缺省 = 保持不变
         updates["password"] = body.password
-    if body.from_addr is not None:
-        updates["from"] = body.from_addr.strip()
     if body.security is not None:
         if body.security not in ("starttls", "ssl", "none"):
             raise HTTPException(status_code=400, detail="security 必须是 starttls/ssl/none")
