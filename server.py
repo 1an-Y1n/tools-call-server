@@ -632,6 +632,15 @@ def build_report_html(name, stats):
 </div></body></html>"""
 
 
+def _smtp_error_detail(exc):
+    msg = f"{type(exc).__name__}: {exc}"
+    if "5.7.139" in msg or "SmtpClientAuthentication" in msg:
+        msg = ("租户已禁用 SMTP AUTH（5.7.139）：需要 IT 给发件邮箱开启 SMTP AUTH"
+               "（Set-CASMailbox <邮箱> -SmtpClientAuthenticationDisabled $false），"
+               "或改用公司内部 SMTP 中继（问 IT 要 relay 地址）")
+    return msg
+
+
 class EmailBody(BaseModel):
     email: str
 
@@ -669,7 +678,7 @@ def admin_send_report(username: str, user: dict = Depends(require_admin)):
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"发送失败: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=502, detail=f"发送失败: {_smtp_error_detail(exc)}")
     if status == "skipped":
         raise HTTPException(status_code=400, detail=reason)
     return {"ok": True}
@@ -745,7 +754,7 @@ def admin_test_smtp(body: TestToBody, user: dict = Depends(require_admin)):
         send_html_mail(to, "tools-call-server 测试邮件",
                        '<p style="font-size:14px">SMTP 配置测试成功，报告邮件将使用此发件配置。</p>')
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"发送失败: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=502, detail=f"发送失败: {_smtp_error_detail(exc)}")
     return {"ok": True}
 
 
