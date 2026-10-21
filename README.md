@@ -46,6 +46,7 @@ Environment:
 | `SMTP_PORT` | — (empty) | SMTP port; falls back to 25 when unset |
 | `SMTP_USER` / `SMTP_PASSWORD` | — | Sender mailbox + its password (or app password); leave empty for relays without auth |
 | `SMTP_SECURITY` | `starttls` | `starttls` / `ssl` / `none` |
+| `SMTP_EHLO_NAME` | `tools-call-server` | EHLO hostname sent to the relay; a fixed value avoids smtplib's getfqdn() DNS lookups that can hang on hosts with broken reverse DNS |
 
 ## Login (local accounts)
 
@@ -105,6 +106,12 @@ it is never returned to the page. For Microsoft 365 the sender mailbox must
 allow SMTP AUTH — if the tenant disables it, ask IT to enable SMTP AUTH, or
 use an app password when MFA is on. Without any sender configured, the send
 endpoints return a clear error.
+
+**Internal relay deployment** (no auth): the company SMTP relay accepts
+plain SMTP on port 25 from internal hosts without a password — configure
+服务器 = relay address, 端口 = 25 (or leave empty, it falls back to 25),
+安全方式 = 无加密, 账号 = your company mailbox (shown as sender), 密码
+empty. Verify with 测试发送.
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
 front if the dashboard is reachable more widely.

@@ -68,6 +68,9 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "0"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")
+# EHLO hostname passed to the relay; a fixed value avoids smtplib's
+# getfqdn() DNS lookups that can hang on servers with broken reverse DNS
+SMTP_EHLO_NAME = os.environ.get("SMTP_EHLO_NAME", "tools-call-server")
 
 
 def get_smtp_config():
@@ -565,9 +568,9 @@ def send_html_mail(to, subject, html):
     msg["Subject"] = subject
     msg.attach(MIMEText(html, "html", "utf-8"))
     if cfg["security"] == "ssl":
-        s = smtplib.SMTP_SSL(cfg["host"], port, timeout=30)
+        s = smtplib.SMTP_SSL(cfg["host"], port, timeout=30, local_hostname=SMTP_EHLO_NAME or None)
     else:
-        s = smtplib.SMTP(cfg["host"], port, timeout=30)
+        s = smtplib.SMTP(cfg["host"], port, timeout=30, local_hostname=SMTP_EHLO_NAME or None)
     with s:
         s.ehlo()
         if cfg["security"] == "starttls":
