@@ -298,6 +298,27 @@ def get_user(username):
         return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
 
+def _check_username(name):
+    if not name or len(name) > 64 or any(ord(c) < 32 for c in name):
+        raise HTTPException(status_code=400, detail="用户名长度需 1-64 字符且不含控制字符")
+
+
+def _rename_user(old_name, new_name):
+    # Rename the account and migrate its historical event records in one
+    # transaction so the login identity stays linked to its data
+    row = get_user(old_name)
+    if not row:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    try:
+        with closing(connect()) as conn:
+            conn.execute("UPDATE users SET username = ? WHERE username = ?", (new_name, old_name))
+            conn.execute("UPDATE events SET user = ? WHERE user = ?", (new_name, old_name))
+            conn.commit()
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="用户名已存在")
+    return row
+
+
 _DUMMY_HASH = None
 
 
@@ -344,8 +365,7 @@ def login_page():
 @app.post("/login")
 def login(body: LoginBody, request: Request):
     username = body.username.strip()
-    if not username or len(username) > 64:
-        raise HTTPException(status_code=400, detail="用户名长度需 1-64 字符")
+    _check_username(username)
     if len(body.password) > 1024:
         raise HTTPException(status_code=400, detail="密码过长")
     row = get_user(username)
@@ -394,8 +414,7 @@ def admin_list_users(user: dict = Depends(require_admin)):
 @app.post("/admin/users")
 def admin_create_user(body: NewUserBody, user: dict = Depends(require_admin)):
     username = body.username.strip()
-    if not username or len(username) > 64 or any(ord(c) < 32 for c in username):
-        raise HTTPException(status_code=400, detail="用户名长度需 1-64 字符且不含控制字符")
+    _check_username(username)
     if len(body.password) < 8 or len(body.password) > 1024:
         raise HTTPException(status_code=400, detail="密码长度需 8-1024 位")
     if body.role not in ("admin", "user"):
@@ -452,23 +471,23 @@ def admin_set_role(username: str, body: RoleBody, user: dict = Depends(require_a
 @app.post("/admin/users/{username}/rename")
 def admin_rename_user(username: str, body: RenameBody, request: Request, user: dict = Depends(require_admin)):
     new_name = body.username.strip()
-    if not new_name or len(new_name) > 64 or any(ord(c) < 32 for c in new_name):
-        raise HTTPException(status_code=400, detail="新用户名长度需 1-64 字符且不含控制字符")
+    _check_username(new_name)
     if new_name == username:
         return {"ok": True}
-    row = get_user(username)
-    if not row:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    try:
-        with closing(connect()) as conn:
-            conn.execute("UPDATE users SET username = ? WHERE username = ?", (new_name, username))
-            # 历史事件记录跟随迁移，保持登录身份与数据关联
-            conn.execute("UPDATE events SET user = ? WHERE user = ?", (new_name, username))
-            conn.commit()
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=409, detail="用户名已存在")
+    row = _rename_user(username, new_name)
     if username == user["name"]:
         request.session["user"] = {"name": new_name, "role": row["role"]}
+    return {"ok": True}
+
+
+@app.post("/me/rename")
+def rename_me(body: RenameBody, request: Request, user: dict = Depends(require_user)):
+    new_name = body.username.strip()
+    _check_username(new_name)
+    if new_name == user["name"]:
+        return {"ok": True}
+    row = _rename_user(user["name"], new_name)
+    request.session["user"] = {"name": new_name, "role": row["role"]}
     return {"ok": True}
 
 

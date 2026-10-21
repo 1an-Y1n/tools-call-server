@@ -74,8 +74,8 @@ print('已重置')
 " "$HASH"
 ```
 
-Users change their own password via 改密码 in the 账号 tab. Passwords
-are stored as PBKDF2-SHA256 hashes (600k iterations, per-user salt).
+Users manage their own account in the 账号 tab (rename / change password).
+Passwords are stored as PBKDF2-SHA256 hashes (600k iterations, per-user salt).
 
 Renaming a user migrates their historical event records to the new name
 (login identity and data stay linked; the password is unchanged). Deleting a
