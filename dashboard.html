@@ -193,6 +193,23 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
         <button class="primary" id="smtp-save">保存设置</button>
         <span class="muted" id="smtp-msg"></span>
       </div>
+      <div class="toolbar">
+        <span class="muted">定时发送</span>
+        <select id="sched-mode">
+          <option value="off">关闭</option>
+          <option value="daily">每天</option>
+          <option value="weekly">每周</option>
+        </select>
+        <select id="sched-day" style="display:none">
+          <option value="0">周一</option><option value="1">周二</option><option value="2">周三</option>
+          <option value="3">周四</option><option value="4">周五</option><option value="5">周六</option>
+          <option value="6">周日</option>
+        </select>
+        <input id="sched-time" type="time" value="09:00">
+        <button class="primary" id="sched-save">保存定时</button>
+        <span class="muted" id="sched-msg"></span>
+        <span class="muted" id="sched-last"></span>
+      </div>
     </div>
     <div class="card" id="admin-card" style="display:none"><div class="ttl">用户管理</div>
       <div class="toolbar">
@@ -646,6 +663,36 @@ document.getElementById("smtp-test").onclick = async () => {
   if (r.ok) loadSmtp();
 };
 
+async function loadSchedule(){
+  const r = await fetch("/admin/schedule");
+  if (r.status === 401){ window.location.href = "/login"; return; }
+  if (!r.ok) return;
+  const c = await r.json();
+  document.getElementById("sched-mode").value = c.mode || "off";
+  document.getElementById("sched-day").value = String(c.day ?? 0);
+  document.getElementById("sched-time").value = c.time || "09:00";
+  document.getElementById("sched-day").style.display =
+    document.getElementById("sched-mode").value === "weekly" ? "" : "none";
+  document.getElementById("sched-last").textContent =
+    c.last_sent ? `上次自动发送: ${c.last_sent}` : "尚未自动发送";
+}
+
+document.getElementById("sched-mode").addEventListener("change", () => {
+  document.getElementById("sched-day").style.display =
+    document.getElementById("sched-mode").value === "weekly" ? "" : "none";
+});
+
+document.getElementById("sched-save").onclick = async () => {
+  const el = document.getElementById("sched-msg");
+  const body = { mode: document.getElementById("sched-mode").value,
+                 day: parseInt(document.getElementById("sched-day").value, 10),
+                 time: document.getElementById("sched-time").value || "09:00" };
+  const r = await api("/admin/schedule", body);
+  el.textContent = r.ok ? "已保存" : await errDetail(r);
+  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
+  if (r.ok) loadSchedule();
+};
+
 if (USER && USER.name){
   document.getElementById("user-box").innerHTML =
     `${esc(USER.name)}${isAdmin ? ' <span class="pill">管理员</span>' : ""}` +
@@ -660,6 +707,7 @@ if (USER && USER.name){
     document.getElementById("smtp-card").style.display = "";
     loadUsers();
     loadSmtp();
+    loadSchedule();
   } else {
     document.getElementById("k-users-card").style.display = "none";
     document.getElementById("tool-user-wrap").style.display = "none";

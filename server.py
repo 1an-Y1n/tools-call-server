@@ -17,6 +17,7 @@ import secrets
 import smtplib
 import sqlite3
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
@@ -103,6 +104,7 @@ def set_smtp_settings(updates):
 @asynccontextmanager
 async def lifespan(app):
     seed_default_admin()
+    threading.Thread(target=_report_scheduler, daemon=True).start()
     yield
 
 
@@ -712,8 +714,8 @@ def admin_send_report(username: str, user: dict = Depends(require_admin)):
     return {"ok": True}
 
 
-@app.post("/admin/send_all_reports")
-def admin_send_all(user: dict = Depends(require_admin)):
+def _do_send_all():
+    # Shared by the manual bulk endpoint and the scheduler
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
         users = conn.execute(
@@ -729,7 +731,12 @@ def admin_send_all(user: dict = Depends(require_admin)):
         except Exception as exc:
             results.append({"user": r["username"], "status": "failed",
                             "reason": f"{type(exc).__name__}: {exc}"})
-    return {"results": results}
+    return results
+
+
+@app.post("/admin/send_all_reports")
+def admin_send_all(user: dict = Depends(require_admin)):
+    return {"results": _do_send_all()}
 
 
 class SmtpBody(BaseModel):
@@ -784,6 +791,104 @@ def admin_test_smtp(body: TestToBody, user: dict = Depends(require_admin)):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"发送失败: {_smtp_error_detail(exc)}")
     return {"ok": True}
+
+
+# ---- scheduled report sending ----
+
+def get_schedule_config():
+    cfg = {"mode": "off", "day": 0, "time": "09:00", "last_period": "", "last_sent": ""}
+    with closing(connect()) as conn:
+        for k, v in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'report_%'"):
+            key = k[len("report_"):]
+            if key == "day":
+                try:
+                    cfg[key] = int(v)
+                except ValueError:
+                    pass
+            else:
+                cfg[key] = v
+    return cfg
+
+
+def set_schedule_settings(updates):
+    with closing(connect()) as conn:
+        for k, v in updates.items():
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"report_{k}", str(v)),
+            )
+        conn.commit()
+
+
+def _schedule_period(now, mode):
+    if mode == "weekly":
+        iso = now.isocalendar()
+        return f"{iso[0]}-W{iso[1]}"
+    return now.strftime("%Y-%m-%d")
+
+
+def _scheduler_tick():
+    cfg = get_schedule_config()
+    if cfg["mode"] not in ("daily", "weekly"):
+        return
+    now = datetime.now()
+    if cfg["mode"] == "weekly" and now.weekday() != cfg["day"]:
+        return
+    try:
+        hh, mm = (cfg["time"] or "09:00").split(":")[:2]
+        sched = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+    except (ValueError, AttributeError):
+        return
+    if now < sched:
+        return
+    period = _schedule_period(now, cfg["mode"])
+    if cfg["last_period"] == period:
+        return
+    results = _do_send_all()
+    set_schedule_settings({"last_period": period, "last_sent": now_iso()})
+    log.info("scheduled report run (%s): sent=%s skipped=%s failed=%s", cfg["mode"],
+             len([r for r in results if r["status"] == "sent"]),
+             len([r for r in results if r["status"] == "skipped"]),
+             len([r for r in results if r["status"] == "failed"]))
+
+
+def _report_scheduler():
+    log.info("report scheduler started")
+    while True:
+        try:
+            _scheduler_tick()
+        except Exception as exc:
+            log.error("report scheduler tick failed: %s: %s", type(exc).__name__, exc)
+        time.sleep(60)
+
+
+class ScheduleBody(BaseModel):
+    mode: str
+    day: Optional[int] = None
+    time: Optional[str] = None
+
+
+@app.get("/admin/schedule")
+def admin_get_schedule(user: dict = Depends(require_admin)):
+    return get_schedule_config()
+
+
+@app.post("/admin/schedule")
+def admin_set_schedule(body: ScheduleBody, user: dict = Depends(require_admin)):
+    if body.mode not in ("off", "daily", "weekly"):
+        raise HTTPException(status_code=400, detail="mode 必须是 off/daily/weekly")
+    updates = {"mode": body.mode}
+    if body.mode == "weekly":
+        if body.day is None or not 0 <= body.day <= 6:
+            raise HTTPException(status_code=400, detail="day 必须是 0-6（周一=0）")
+        updates["day"] = body.day
+    t = (body.time or "09:00").strip()
+    if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", t):
+        raise HTTPException(status_code=400, detail="时间格式需 HH:MM")
+    updates["time"] = t
+    set_schedule_settings(updates)
+    return {"ok": True, **get_schedule_config()}
 
 
 def skill_label(skill, command):
