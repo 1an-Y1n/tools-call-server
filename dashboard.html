@@ -55,6 +55,8 @@ button.primary:hover{background:#2f6bc4}
 .opw{white-space:nowrap;margin-right:8px}
 .rename-pen{color:#9ca3af;display:inline-flex;vertical-align:-2px;margin-left:6px}
 .rename-pen:hover{color:#3b7ddd}
+.alias-x{cursor:pointer;color:#9ca3af;margin-left:4px;text-decoration:none;font-weight:600}
+.alias-x:hover{color:#d4537e}
 .pwwrap{position:relative;display:inline-flex}
 .pwwrap input{padding-right:36px}
 button.pweye{position:absolute;top:0;right:0;height:100%;width:34px;margin:0;
@@ -167,6 +169,13 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
         <input id="rn-new" placeholder="新用户名（历史记录一并迁移）" size="26">
         <button class="primary" id="rn-save">改名</button>
         <span class="muted" id="rn-msg"></span>
+      </div>
+      <div class="toolbar">
+        <span class="muted">别名</span>
+        <span id="alias-chips"></span>
+        <input id="alias-new" placeholder="数据中其他用户名（如工号/英文名）" size="26">
+        <button class="primary" id="alias-add">添加</button>
+        <span class="muted" id="alias-msg"></span>
       </div>
       <div class="toolbar">
         <span class="muted">密码</span>
@@ -554,6 +563,41 @@ document.getElementById("rn-save").onclick = async () => {
   el.style.color = r.ok ? "#1d9e75" : "#d4537e";
   if (r.ok) setTimeout(() => window.location.reload(), 600);
 };
+
+let myAliases = (USER && USER.aliases) || [];
+
+function renderAliases(){
+  document.getElementById("alias-chips").innerHTML = myAliases.length
+    ? myAliases.map(a => `<span class="pill">${esc(a)}<a href="#" class="alias-x" data-a="${esc(a)}" title="移除">×</a></span>`).join("")
+    : '<span class="muted">无</span>';
+}
+
+document.getElementById("alias-add").onclick = async () => {
+  const el = document.getElementById("alias-msg");
+  const r = await api("/me/aliases/add", { alias: document.getElementById("alias-new").value });
+  el.textContent = r.ok ? "已添加" : await errDetail(r);
+  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
+  if (r.ok){
+    myAliases = (await r.json()).aliases;
+    document.getElementById("alias-new").value = "";
+    renderAliases();
+    load();
+  }
+};
+
+document.addEventListener("click", async (ev) => {
+  const x = ev.target.closest(".alias-x");
+  if (!x) return;
+  ev.preventDefault();
+  const r = await api("/me/aliases/remove", { alias: x.dataset.a });
+  if (r.ok){
+    myAliases = (await r.json()).aliases;
+    renderAliases();
+    load();
+  }
+});
+
+renderAliases();
 
 document.getElementById("pw-save").onclick = async () => {
   const el = document.getElementById("pw-msg");

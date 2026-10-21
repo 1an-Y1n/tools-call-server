@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
+    aliases TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL
 );
 """
@@ -131,6 +132,9 @@ def migrate(conn):
         conn.execute("ALTER TABLE events ADD COLUMN client_id TEXT")
     if "user" not in existing:
         conn.execute("ALTER TABLE events ADD COLUMN user TEXT")
+    ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if "aliases" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_client ON events(client_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_user ON events(user)")
 
@@ -241,7 +245,7 @@ def stats(request: Request):
     user = current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="not authenticated")
-    return compute_stats(None if user["role"] == "admin" else user["name"])
+    return compute_stats(None if user["role"] == "admin" else [user["name"], *user["aliases"]])
 
 
 # ---- local accounts ----
@@ -271,6 +275,10 @@ class RoleBody(BaseModel):
 
 class RenameBody(BaseModel):
     username: str
+
+
+class AliasBody(BaseModel):
+    alias: str
 
 
 class ResetPasswordBody(BaseModel):
@@ -341,7 +349,11 @@ def current_user(request: Request):
     if not row:
         request.session.clear()
         return None
-    return {"name": row["username"], "role": row["role"]}
+    return {
+        "name": row["username"],
+        "role": row["role"],
+        "aliases": json.loads(row["aliases"] or "[]"),
+    }
 
 
 def require_user(request: Request):
@@ -491,6 +503,51 @@ def rename_me(body: RenameBody, request: Request, user: dict = Depends(require_u
     return {"ok": True}
 
 
+def _alias_conflict(alias, owner):
+    # An alias must not collide with any OTHER account's username or alias,
+    # otherwise it could claim that account's data
+    with closing(connect()) as conn:
+        if conn.execute("SELECT 1 FROM users WHERE username = ?", (alias,)).fetchone():
+            raise HTTPException(status_code=400, detail="该名称已被其他账号占用")
+        for username, aj in conn.execute("SELECT username, aliases FROM users"):
+            if username != owner and alias in json.loads(aj or "[]"):
+                raise HTTPException(status_code=400, detail="该名称已被其他账号占用")
+
+
+@app.post("/me/aliases/add")
+def alias_add(body: AliasBody, user: dict = Depends(require_user)):
+    alias = body.alias.strip()
+    _check_username(alias)
+    if alias == user["name"]:
+        raise HTTPException(status_code=400, detail="别名不能与用户名相同")
+    row = get_user(user["name"])
+    aliases = json.loads(row["aliases"] or "[]")
+    if alias in aliases:
+        raise HTTPException(status_code=409, detail="别名已存在")
+    _alias_conflict(alias, user["name"])
+    aliases.append(alias)
+    with closing(connect()) as conn:
+        conn.execute("UPDATE users SET aliases = ? WHERE username = ?",
+                     (json.dumps(aliases, ensure_ascii=False), user["name"]))
+        conn.commit()
+    return {"ok": True, "aliases": aliases}
+
+
+@app.post("/me/aliases/remove")
+def alias_remove(body: AliasBody, user: dict = Depends(require_user)):
+    row = get_user(user["name"])
+    aliases = json.loads(row["aliases"] or "[]")
+    alias = body.alias.strip()
+    if alias not in aliases:
+        raise HTTPException(status_code=404, detail="别名不存在")
+    aliases.remove(alias)
+    with closing(connect()) as conn:
+        conn.execute("UPDATE users SET aliases = ? WHERE username = ?",
+                     (json.dumps(aliases, ensure_ascii=False), user["name"]))
+        conn.commit()
+    return {"ok": True, "aliases": aliases}
+
+
 @app.post("/admin/users/{username}/delete")
 def admin_delete_user(username: str, user: dict = Depends(require_admin)):
     if username == user["name"]:
@@ -515,12 +572,24 @@ def skill_label(skill, command):
     return skill or (f"<{command}>" if command else "<unidentified>")
 
 
-def compute_stats(user=None):
-    flt = " AND user = ?" if user else ""
-    args = [user] if user else []
-    where_u = " WHERE user = ?" if user else ""
+def compute_stats(identities=None):
+    # identities: list of data-user names (username + aliases) owned by one
+    # account, or None for admins (all data). Views aggregate by account via
+    # the identity map, so alias identities merge under the account name.
+    if identities:
+        ph = ",".join("?" * len(identities))
+        flt = f" AND user IN ({ph})"
+        args = list(identities)
+        where_u = f" WHERE user IN ({ph})"
+    else:
+        flt, args, where_u = "", [], ""
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
+        id_map = {}
+        for username, aj in conn.execute("SELECT username, aliases FROM users"):
+            id_map[username] = username
+            for a in json.loads(aj or "[]"):
+                id_map[a] = username
         total = conn.execute(f"SELECT COUNT(*) AS n FROM events{where_u}", args).fetchone()["n"]
         by_tool = conn.execute(
             "SELECT CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
@@ -586,20 +655,32 @@ def compute_stats(user=None):
         ).fetchall()
         last = conn.execute(f"SELECT MAX(timestamp) AS ts FROM events{where_u}", args).fetchone()["ts"]
         tool_days, user_tools, user_skills, skill_days = {}, {}, {}, {}
-        user_tool_days, user_skill_days = {}, {}
+        user_tool_days, user_skill_days, by_user_map = {}, {}, {}
         for r in tool_day_rows:
             tool_days.setdefault(r["tool"], {})[r["day"]] = r["n"]
         for r in user_tool_rows:
-            user_tools.setdefault(r["user"], {})[r["tool"]] = r["n"]
+            acct = id_map.get(r["user"], r["user"])
+            dst = user_tools.setdefault(acct, {})
+            dst[r["tool"]] = dst.get(r["tool"], 0) + r["n"]
         for r in user_skill_rows:
-            user_skills.setdefault(r["user"], {})[skill_label(r["skill"], r["skill_command"])] = r["n"]
+            acct = id_map.get(r["user"], r["user"])
+            label = skill_label(r["skill"], r["skill_command"])
+            dst = user_skills.setdefault(acct, {})
+            dst[label] = dst.get(label, 0) + r["n"]
         for r in skill_day_rows:
             skill_days.setdefault(skill_label(r["skill"], r["skill_command"]), {})[r["day"]] = r["n"]
         for r in user_tool_day_rows:
-            user_tool_days.setdefault(r["user"], {}).setdefault(r["tool"], {})[r["day"]] = r["n"]
+            acct = id_map.get(r["user"], r["user"])
+            dst_days = user_tool_days.setdefault(acct, {}).setdefault(r["tool"], {})
+            dst_days[r["day"]] = dst_days.get(r["day"], 0) + r["n"]
         for r in user_skill_day_rows:
-            user_skill_days.setdefault(r["user"], {}).setdefault(
-                skill_label(r["skill"], r["skill_command"]), {})[r["day"]] = r["n"]
+            acct = id_map.get(r["user"], r["user"])
+            label = skill_label(r["skill"], r["skill_command"])
+            dst_days = user_skill_days.setdefault(acct, {}).setdefault(label, {})
+            dst_days[r["day"]] = dst_days.get(r["day"], 0) + r["n"]
+        for r in by_user:
+            acct = id_map.get(r["user"], r["user"]) or "<unknown>"
+            by_user_map[acct] = by_user_map.get(acct, 0) + r["n"]
 
     def _valid_day(day):
         return bool(day) and len(day) == 10 and day[4] == "-" and day[7] == "-"
@@ -607,7 +688,7 @@ def compute_stats(user=None):
     return {
         "total": total,
         "by_client": {(r["client_id"] or "<unknown>"): r["n"] for r in by_client},
-        "by_user": {(r["user"] or "<unknown>"): r["n"] for r in by_user},
+        "by_user": by_user_map,
         "by_tool": {r["tool"]: r["n"] for r in by_tool},
         "by_skill": {skill_label(r["skill"], r["skill_command"]): r["n"] for r in by_skill_rows},
         "by_day": {r["day"]: r["n"] for r in by_day if _valid_day(r["day"])},
@@ -652,7 +733,8 @@ def dashboard(request: Request):
         return RedirectResponse("/login", status_code=302)
     markers = {
         "__USER__": _json_for_script(user),
-        "__DATA__": _json_for_script(compute_stats(None if user["role"] == "admin" else user["name"])),
+        "__DATA__": _json_for_script(
+            compute_stats(None if user["role"] == "admin" else [user["name"], *user["aliases"]])),
         "__GENERATED__": now_iso(),
     }
     html = DASHBOARD_PATH.read_text(encoding="utf-8")
