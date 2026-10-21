@@ -554,7 +554,7 @@ def esc_html(s):
 def send_html_mail(to, subject, html):
     cfg = get_smtp_config()
     if not cfg["host"] or not (cfg["from"] or cfg["user"]):
-        raise RuntimeError("SMTP 未配置（在页面邮件设置中配置，或设置 SMTP_HOST/SMTP_FROM 环境变量）")
+        raise RuntimeError("SMTP 未配置：请填写服务器与账号（发件人）后保存，再发送")
     msg = MIMEMultipart("alternative")
     msg["From"] = cfg["from"] or cfg["user"]
     msg["To"] = to
