@@ -10,12 +10,14 @@ is seeded on first start (empty users table) — change it after first login.
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
 import smtplib
 import sqlite3
 import sys
+import time
 from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
@@ -557,21 +559,30 @@ def esc_html(s):
             .replace("&", "\u0026amp;").replace("<", "\u0026lt;").replace(">", "\u0026gt;"))
 
 
+log = logging.getLogger("tools-call.smtp")
+
+
 def send_html_mail(to, subject, html):
     cfg = get_smtp_config()
-    if not cfg["host"] or not cfg["user"]:
-        raise RuntimeError("SMTP 未配置：请填写服务器与账号后保存，再发送")
     port = cfg["port"] or 25
-    msg = MIMEMultipart("alternative")
-    msg["From"] = cfg["user"]
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.attach(MIMEText(html, "html", "utf-8"))
-    if cfg["security"] == "ssl":
-        s = smtplib.SMTP_SSL(cfg["host"], port, timeout=30, local_hostname=SMTP_EHLO_NAME or None)
-    else:
-        s = smtplib.SMTP(cfg["host"], port, timeout=30, local_hostname=SMTP_EHLO_NAME or None)
+    log.info("SMTP send: to=%s host=%s port=%s security=%s ehlo=%s user=%s password_set=%s",
+             to, cfg["host"], port, cfg["security"], SMTP_EHLO_NAME, cfg["user"], bool(cfg["password"]))
+    if not cfg["host"] or not cfg["user"]:
+        log.warning("SMTP not configured: host=%r user=%r", cfg["host"], cfg["user"])
+        raise RuntimeError("SMTP 未配置：请填写服务器与账号后保存，再发送")
+    t0 = time.monotonic()
+    try:
+        if cfg["security"] == "ssl":
+            s = smtplib.SMTP_SSL(cfg["host"], port, timeout=30, local_hostname=SMTP_EHLO_NAME or None)
+        else:
+            s = smtplib.SMTP(cfg["host"], port, timeout=30, local_hostname=SMTP_EHLO_NAME or None)
+    except Exception as exc:
+        log.error("SMTP connect FAILED after %.1fs: %s: %s",
+                  time.monotonic() - t0, type(exc).__name__, exc)
+        raise
+    log.info("SMTP connected in %.1fs", time.monotonic() - t0)
     with s:
+        s.set_debuglevel(1)
         s.ehlo()
         if cfg["security"] == "starttls":
             s.starttls()
@@ -579,6 +590,7 @@ def send_html_mail(to, subject, html):
         if cfg["password"]:
             s.login(cfg["user"], cfg["user"])
         s.send_message(msg)
+        log.info("SMTP send OK in %.1fs total", time.monotonic() - t0)
 
 
 def _report_bar(n, maxn, color="#3b7ddd"):
