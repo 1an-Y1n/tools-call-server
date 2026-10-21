@@ -161,15 +161,8 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
   </div>
 
   <div class="panel" id="p-account">
-    <div class="card"><div class="ttl">账号设置</div>
+    <div class="card"><div class="ttl">修改我的密码</div>
       <div class="toolbar">
-        <span class="muted">用户名</span>
-        <input id="rn-new" placeholder="新用户名（历史记录一并迁移）" size="26">
-        <button class="primary" id="rn-save">改名</button>
-        <span class="muted" id="rn-msg"></span>
-      </div>
-      <div class="toolbar">
-        <span class="muted">密码</span>
         <span class="pwwrap"><input id="pw-old" type="password" placeholder="旧密码" size="16" autocomplete="current-password"><button type="button" class="pweye" id="eye-pw-old" tabindex="-1"></button></span>
         <span class="pwwrap"><input id="pw-new" type="password" placeholder="新密码（至少 8 位）" size="20" autocomplete="new-password"><button type="button" class="pweye" id="eye-pw-new" tabindex="-1"></button></span>
         <button class="primary" id="pw-save">保存</button>
@@ -493,8 +486,7 @@ async function loadUsers(){
     "<table><thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead><tbody>" +
     d.users.map(u => {
       const isSelf = u.username === USER.name;
-      const pen = isSelf ? "" :
-        `<a href="#" class="op rename-pen" data-op="rename" data-u="${esc(u.username)}" title="改名" aria-label="改名">${PEN}</a>`;
+      const pen = `<a href="#" class="op rename-pen" data-op="rename" data-u="${esc(u.username)}" title="改名" aria-label="改名">${PEN}</a>`;
       const ops = [];
       ops.push(`<a href="#" class="op" data-op="pw" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">重置密码</a>`);
       if (!isSelf) ops.push(`<a href="#" class="op" data-op="role" data-u="${esc(u.username)}" data-role="${u.role === "admin" ? "user" : "admin"}" style="color:#3b7ddd;text-decoration:none">${u.role === "admin" ? "设为普通用户" : "设为管理员"}</a>`);
@@ -545,14 +537,6 @@ document.getElementById("nu-add").onclick = async () => {
     document.getElementById("nu-pass").value = "";
     loadUsers();
   }
-};
-
-document.getElementById("rn-save").onclick = async () => {
-  const el = document.getElementById("rn-msg");
-  const r = await api("/me/rename", { username: document.getElementById("rn-new").value });
-  el.textContent = r.ok ? "用户名已修改" : await errDetail(r);
-  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
-  if (r.ok) setTimeout(() => window.location.reload(), 600);
 };
 
 document.getElementById("pw-save").onclick = async () => {

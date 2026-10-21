@@ -480,17 +480,6 @@ def admin_rename_user(username: str, body: RenameBody, request: Request, user: d
     return {"ok": True}
 
 
-@app.post("/me/rename")
-def rename_me(body: RenameBody, request: Request, user: dict = Depends(require_user)):
-    new_name = body.username.strip()
-    _check_username(new_name)
-    if new_name == user["name"]:
-        return {"ok": True}
-    row = _rename_user(user["name"], new_name)
-    request.session["user"] = {"name": new_name, "role": row["role"]}
-    return {"ok": True}
-
-
 @app.post("/admin/users/{username}/delete")
 def admin_delete_user(username: str, user: dict = Depends(require_admin)):
     if username == user["name"]:
