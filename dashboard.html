@@ -175,6 +175,7 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
         <span class="pwwrap"><input id="nu-pass" type="password" placeholder="初始密码（至少 8 位）" size="20" autocomplete="new-password"><button type="button" class="pweye" id="eye-nu-pass" tabindex="-1"></button></span>
         <select id="nu-role"><option value="user">普通用户</option><option value="admin">管理员</option></select>
         <button class="primary" id="nu-add">添加用户</button>
+        <button id="send-all">全部发送报告</button>
         <span class="muted" id="admin-msg"></span>
       </div>
       <div id="t-admin"></div>
@@ -483,16 +484,19 @@ async function loadUsers(){
   if (!r.ok) return;
   const d = await r.json();
   document.getElementById("t-admin").innerHTML =
-    "<table><thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead><tbody>" +
+    "<table><thead><tr><th>用户名</th><th>角色</th><th>邮箱</th><th>创建时间</th><th>操作</th></tr></thead><tbody>" +
     d.users.map(u => {
       const isSelf = u.username === USER.name;
       const pen = `<a href="#" class="op rename-pen" data-op="rename" data-u="${esc(u.username)}" title="改名" aria-label="改名">${PEN}</a>`;
       const ops = [];
+      ops.push(`<a href="#" class="op" data-op="email" data-u="${esc(u.username)}" data-email="${esc(u.email || "")}" style="color:#3b7ddd;text-decoration:none">邮箱</a>`);
+      ops.push(`<a href="#" class="op" data-op="sendrep" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">发报告</a>`);
       ops.push(`<a href="#" class="op" data-op="pw" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">重置密码</a>`);
       if (!isSelf) ops.push(`<a href="#" class="op" data-op="role" data-u="${esc(u.username)}" data-role="${u.role === "admin" ? "user" : "admin"}" style="color:#3b7ddd;text-decoration:none">${u.role === "admin" ? "设为普通用户" : "设为管理员"}</a>`);
       if (!isSelf) ops.push(`<a href="#" class="op" data-op="del" data-u="${esc(u.username)}" style="color:#d4537e;text-decoration:none">删除</a>`);
       return `<tr><td>${esc(u.username)}${isSelf ? ' <span class="pill">我</span>' : ""}${pen}</td>` +
         `<td>${u.role === "admin" ? "管理员" : "普通用户"}</td>` +
+        `<td class="muted">${esc(u.email || "-")}</td>` +
         `<td class="muted">${esc(u.created_at)}</td>` +
         `<td>${ops.map(o => `<span class="opw">${o}</span>`).join("")}</td></tr>`;
     }).join("") + "</tbody></table>";
@@ -514,6 +518,13 @@ document.addEventListener("click", async (ev) => {
     const nn = prompt(`将用户 ${u} 改名为：（其历史调用记录会一并迁移）`);
     if (!nn || nn.trim() === u) return;
     url = `/admin/users/${encodeURIComponent(u)}/rename`; body = { username: nn };
+  } else if (op === "email"){
+    const em = prompt(`为 ${u} 配置接收报告的 Outlook 邮箱：`, a.dataset.email || "");
+    if (em === null || !em.trim()) return;
+    url = `/admin/users/${encodeURIComponent(u)}/email`; body = { email: em.trim() };
+  } else if (op === "sendrep"){
+    if (!confirm(`将 ${u} 的统计报告发送到其配置的邮箱？`)) return;
+    url = `/admin/users/${encodeURIComponent(u)}/send_report`; body = undefined;
   } else {
     if (!confirm(`确定删除用户 ${u}？账号不可恢复，历史调用记录保留。`)) return;
     url = `/admin/users/${encodeURIComponent(u)}/delete`; body = undefined;
@@ -548,6 +559,21 @@ document.getElementById("pw-save").onclick = async () => {
   if (r.ok){
     document.getElementById("pw-old").value = "";
     document.getElementById("pw-new").value = "";
+  }
+};
+
+document.getElementById("send-all").onclick = async () => {
+  if (!confirm("给所有已配置邮箱且有数据的用户发送统计报告？")) return;
+  adminMsg("发送中…", true);
+  const r = await api("/admin/send_all_reports", {});
+  if (r.ok){
+    const d = await r.json();
+    const sent = d.results.filter(x => x.status === "sent").length;
+    const skipped = d.results.filter(x => x.status === "skipped").length;
+    const failed = d.results.filter(x => x.status === "failed").length;
+    adminMsg(`发送 ${sent} · 跳过 ${skipped} · 失败 ${failed}`, failed === 0);
+  } else {
+    adminMsg(await errDetail(r), false);
   }
 };
 

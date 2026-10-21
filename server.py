@@ -13,10 +13,13 @@ import json
 import os
 import re
 import secrets
+import smtplib
 import sqlite3
 import sys
 from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -55,6 +58,16 @@ def _load_session_secret():
 
 
 SESSION_SECRET = _load_session_secret()
+
+# SMTP for report emails; defaults to Office 365 (Outlook). Credentials come
+# from env: SMTP_USER (sender mailbox) + SMTP_PASSWORD (mailbox password or
+# app password). SMTP_SECURITY: starttls (default) | ssl | none
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.office365.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "") or SMTP_USER
+SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")
 
 
 @asynccontextmanager
@@ -119,6 +132,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
+    email TEXT,
     created_at TEXT NOT NULL
 );
 """
@@ -131,6 +145,9 @@ def migrate(conn):
         conn.execute("ALTER TABLE events ADD COLUMN client_id TEXT")
     if "user" not in existing:
         conn.execute("ALTER TABLE events ADD COLUMN user TEXT")
+    ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if "email" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_client ON events(client_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_user ON events(user)")
 
@@ -406,7 +423,7 @@ def admin_list_users(user: dict = Depends(require_admin)):
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT username, role, created_at FROM users ORDER BY username"
+            "SELECT username, role, email, created_at FROM users ORDER BY username"
         ).fetchall()
     return {"users": [dict(r) for r in rows]}
 
@@ -496,6 +513,157 @@ def admin_delete_user(username: str, user: dict = Depends(require_admin)):
         conn.execute("DELETE FROM users WHERE username = ?", (username,))
         conn.commit()
     return {"ok": True}
+
+
+# ---- email reports ----
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def esc_html(s):
+    return (str(s if s is not None else "")
+            .replace("&", "\u0026amp;").replace("<", "\u0026lt;").replace(">", "\u0026gt;"))
+
+
+def send_html_mail(to, subject, html):
+    if not SMTP_HOST or not (SMTP_FROM or SMTP_USER):
+        raise RuntimeError("SMTP 未配置（需要 SMTP_HOST 与 SMTP_FROM/SMTP_USER 环境变量）")
+    msg = MIMEMultipart("alternative")
+    msg["From"] = SMTP_FROM or SMTP_USER
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.attach(MIMEText(html, "html", "utf-8"))
+    if SMTP_SECURITY == "ssl":
+        s = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30)
+    else:
+        s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30)
+    with s:
+        s.ehlo()
+        if SMTP_SECURITY == "starttls":
+            s.starttls()
+            s.ehlo()
+        if SMTP_PASSWORD:
+            s.login(SMTP_USER, SMTP_FROM or SMTP_USER)
+        s.send_message(msg)
+
+
+def _report_bar(n, maxn, color="#3b7ddd"):
+    pct = round(n / maxn * 100) if maxn else 0
+    return ('<table cellpadding="0" cellspacing="0" style="width:120px;border-collapse:collapse">'
+            '<tr><td style="background:#e5e7eb;height:8px;padding:0;border-radius:4px">'
+            f'<table cellpadding="0" cellspacing="0" style="width:{pct}%;border-collapse:collapse">'
+            f'<tr><td style="background:{color};height:8px;padding:0;border-radius:4px;'
+            'font-size:0;line-height:0">&nbsp;</td></tr></table>'
+            '</td></tr></table>')
+
+
+def _report_rows(rows, color):
+    if not rows:
+        return '<div style="color:#9ca3af;padding:8px 0">暂无数据</div>'
+    maxn = max(r["n"] for r in rows) or 1
+    total = sum(r["n"] for r in rows) or 1
+    th = 'style="padding:8px 10px;background:#f7f8fa;color:#4b5563;border-bottom:1px solid #e5e7eb;text-align:left"'
+    td = 'style="padding:8px 10px;border-bottom:1px solid #f0f1f3;vertical-align:middle"'
+    h = f'<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:13px">'
+    h += f'<tr><th {th}>名称</th><th {th} align="right">次数</th><th {th} align="right">占比</th><th {th}></th></tr>'
+    for r in rows:
+        h += (f'<tr><td {td}>{esc_html(r["name"])}</td>'
+              f'<td {td} align="right" style="padding:8px 10px;border-bottom:1px solid #f0f1f3;'
+              f'font-variant-numeric:tabular-nums">{r["n"]}</td>'
+              f'<td {td} align="right" style="padding:8px 10px;border-bottom:1px solid #f0f1f3;color:#6b7280">'
+              f'{r["n"] / total * 100:.1f}%</td>'
+              f'<td {td}>{_report_bar(r["n"], maxn, color)}</td></tr>')
+    return h + "</table>"
+
+
+def build_report_html(name, stats):
+    gen = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    tools = sorted(stats["by_tool"].items(), key=lambda x: -x[1])[:15]
+    skills = sorted(stats["by_skill"].items(), key=lambda x: -x[1])[:15]
+    days = sorted(stats["by_day"].items())[-30:]
+    kpi = 'style="padding:10px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:8px"'
+    card = 'style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin:0 0 18px"'
+    ttl = 'style="font-size:14px;font-weight:600;margin:0 0 12px;color:#31363c"'
+    clients = len([c for c in stats["by_client"] if c != "<unknown>"])
+    return f"""<!doctype html><html><body style="margin:0;background:#f5f6f8;font-family:-apple-system,'Segoe UI','Microsoft YaHei',Roboto,sans-serif;font-size:14px;color:#1f2328">
+<div style="max-width:900px;margin:0 auto;padding:24px">
+  <div style="font-size:20px;font-weight:600;margin-bottom:4px">Agent 工具 / Skill 使用统计 — {esc_html(name)}</div>
+  <div style="color:#6b7280;font-size:13px;margin-bottom:18px">生成于 {gen} · 数据范围：全部历史</div>
+  <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:18px"><tr>
+    <td {kpi}><div style="font-size:22px;font-weight:600">{stats['total']}</div><div style="font-size:12px;color:#6b7280">总记录数</div></td>
+    <td style="width:12px">&nbsp;</td>
+    <td {kpi}><div style="font-size:22px;font-weight:600">{clients}</div><div style="font-size:12px;color:#6b7280">Client 数</div></td>
+    <td style="width:12px">&nbsp;</td>
+    <td {kpi}><div style="font-size:13px;font-weight:600;padding-top:6px">{esc_html(stats['last_timestamp'] or '-')}</div><div style="font-size:12px;color:#6b7280">最新记录时间</div></td>
+  </tr></table>
+  <div {card}><div {ttl}>工具调用次数（Top 15）</div>{_report_rows([{'name': t, 'n': n} for t, n in tools], '#3b7ddd')}</div>
+  <div {card}><div {ttl}>Skill 调用次数（Top 15）</div>{_report_rows([{'name': s, 'n': n} for s, n in skills], '#1d9e75')}</div>
+  <div {card}><div {ttl}>每日记录趋势（最近 30 天）</div>{_report_rows([{'name': d, 'n': n} for d, n in days], '#3b7ddd')}</div>
+  <div style="color:#9ca3af;font-size:12px">本邮件由 tools-call-server 自动发送</div>
+</div></body></html>"""
+
+
+class EmailBody(BaseModel):
+    email: str
+
+
+@app.post("/admin/users/{username}/email")
+def admin_set_email(username: str, body: EmailBody, user: dict = Depends(require_admin)):
+    email = body.email.strip()
+    if not EMAIL_RE.match(email) or len(email) > 254:
+        raise HTTPException(status_code=400, detail="邮箱格式不正确")
+    with closing(connect()) as conn:
+        cur = conn.execute("UPDATE users SET email = ? WHERE username = ?", (email, username))
+        conn.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"ok": True}
+
+
+def _send_user_report(username, email):
+    stats = compute_stats(username)
+    if stats["total"] == 0:
+        return "skipped", "无数据"
+    send_html_mail(email, f"Agent 工具 / Skill 使用统计报告 — {username}", build_report_html(username, stats))
+    return "sent", ""
+
+
+@app.post("/admin/users/{username}/send_report")
+def admin_send_report(username: str, user: dict = Depends(require_admin)):
+    row = get_user(username)
+    if not row:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if not row["email"]:
+        raise HTTPException(status_code=400, detail="该用户未配置邮箱")
+    try:
+        status, reason = _send_user_report(username, row["email"])
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"发送失败: {type(exc).__name__}: {exc}")
+    if status == "skipped":
+        raise HTTPException(status_code=400, detail=reason)
+    return {"ok": True}
+
+
+@app.post("/admin/send_all_reports")
+def admin_send_all(user: dict = Depends(require_admin)):
+    with closing(connect()) as conn:
+        conn.row_factory = sqlite3.Row
+        users = conn.execute(
+            "SELECT username, email FROM users WHERE email IS NOT NULL AND email != ''"
+        ).fetchall()
+    results = []
+    for r in users:
+        try:
+            status, reason = _send_user_report(r["username"], r["email"])
+            results.append({"user": r["username"], "status": status, "reason": reason})
+        except RuntimeError as exc:
+            results.append({"user": r["username"], "status": "failed", "reason": str(exc)})
+        except Exception as exc:
+            results.append({"user": r["username"], "status": "failed",
+                            "reason": f"{type(exc).__name__}: {exc}"})
+    return {"results": results}
 
 
 def skill_label(skill, command):
