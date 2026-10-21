@@ -481,11 +481,16 @@ async function loadUsers(){
   document.getElementById("t-admin").innerHTML =
     "<table><thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead><tbody>" +
     d.users.map(u => {
-      const toggleRole = u.role === "admin" ? "设为普通" : "设为管理员";
-      return `<tr><td>${esc(u.username)}</td><td>${u.role === "admin" ? "管理员" : "普通用户"}</td>` +
+      const isSelf = u.username === USER.name;
+      const ops = [];
+      ops.push(`<a href="#" class="op" data-op="pw" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">重置密码</a>`);
+      if (!isSelf) ops.push(`<a href="#" class="op" data-op="role" data-u="${esc(u.username)}" data-role="${u.role === "admin" ? "user" : "admin"}" style="color:#3b7ddd;text-decoration:none">${u.role === "admin" ? "设为普通" : "设为管理员"}</a>`);
+      ops.push(`<a href="#" class="op" data-op="rename" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">改名</a>`);
+      if (!isSelf) ops.push(`<a href="#" class="op" data-op="del" data-u="${esc(u.username)}" style="color:#d4537e;text-decoration:none">删除</a>`);
+      return `<tr><td>${esc(u.username)}${isSelf ? ' <span class="pill">我</span>' : ""}</td>` +
+        `<td>${u.role === "admin" ? "管理员" : "普通用户"}</td>` +
         `<td class="muted">${esc(u.created_at)}</td>` +
-        `<td><a href="#" class="op" data-op="pw" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">重置密码</a> · ` +
-        `<a href="#" class="op" data-op="role" data-u="${esc(u.username)}" data-role="${u.role === "admin" ? "user" : "admin"}" style="color:#3b7ddd;text-decoration:none">${toggleRole}</a></td></tr>`;
+        `<td>${ops.join(" · ")}</td></tr>`;
     }).join("") + "</tbody></table>";
 }
 
@@ -499,12 +504,20 @@ document.addEventListener("click", async (ev) => {
     const pw = prompt(`为 ${u} 设置新密码（至少 8 位）：`);
     if (!pw) return;
     url = `/admin/users/${encodeURIComponent(u)}/password`; body = { password: pw };
+  } else if (op === "rename"){
+    const nn = prompt(`将用户 ${u} 改名为：（其历史调用记录会一并迁移）`);
+    if (!nn || nn.trim() === u) return;
+    url = `/admin/users/${encodeURIComponent(u)}/rename`; body = { username: nn };
   } else {
-    url = `/admin/users/${encodeURIComponent(u)}/role`; body = { role: a.dataset.role };
+    if (!confirm(`确定删除用户 ${u}？账号不可恢复，历史调用记录保留。`)) return;
+    url = `/admin/users/${encodeURIComponent(u)}/delete`; body = undefined;
   }
   const r = await api(url, body);
   adminMsg(r.ok ? "操作成功" : await errDetail(r), r.ok);
-  if (r.ok) loadUsers();
+  if (r.ok){
+    loadUsers();
+    if (op === "rename" && u === USER.name) window.location.reload();
+  }
 });
 
 document.getElementById("nu-add").onclick = async () => {

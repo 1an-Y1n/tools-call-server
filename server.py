@@ -132,6 +132,7 @@ def migrate(conn):
     if "user" not in existing:
         conn.execute("ALTER TABLE events ADD COLUMN user TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_client ON events(client_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_user ON events(user)")
 
 
 def connect():
@@ -266,6 +267,10 @@ class NewUserBody(BaseModel):
 
 class RoleBody(BaseModel):
     role: str
+
+
+class RenameBody(BaseModel):
+    username: str
 
 
 class ResetPasswordBody(BaseModel):
@@ -441,6 +446,47 @@ def admin_set_role(username: str, body: RoleBody, user: dict = Depends(require_a
         conn.commit()
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="用户不存在")
+    return {"ok": True}
+
+
+@app.post("/admin/users/{username}/rename")
+def admin_rename_user(username: str, body: RenameBody, request: Request, user: dict = Depends(require_admin)):
+    new_name = body.username.strip()
+    if not new_name or len(new_name) > 64 or any(ord(c) < 32 for c in new_name):
+        raise HTTPException(status_code=400, detail="新用户名长度需 1-64 字符且不含控制字符")
+    if new_name == username:
+        return {"ok": True}
+    row = get_user(username)
+    if not row:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    try:
+        with closing(connect()) as conn:
+            conn.execute("UPDATE users SET username = ? WHERE username = ?", (new_name, username))
+            # 历史事件记录跟随迁移，保持登录身份与数据关联
+            conn.execute("UPDATE events SET user = ? WHERE user = ?", (new_name, username))
+            conn.commit()
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="用户名已存在")
+    if username == user["name"]:
+        request.session["user"] = {"name": new_name, "role": row["role"]}
+    return {"ok": True}
+
+
+@app.post("/admin/users/{username}/delete")
+def admin_delete_user(username: str, user: dict = Depends(require_admin)):
+    if username == user["name"]:
+        raise HTTPException(status_code=400, detail="不能删除自己")
+    row = get_user(username)
+    if not row:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if row["role"] == "admin":
+        with closing(connect()) as conn:
+            admins = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
+        if admins <= 1:
+            raise HTTPException(status_code=400, detail="不能删除最后一名管理员")
+    with closing(connect()) as conn:
+        conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        conn.commit()
     return {"ok": True}
 
 

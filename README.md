@@ -49,7 +49,7 @@ Environment:
 `/echarts` stay open for collectors and probes. Two roles:
 
 - **admin** — sees all data; manages users in the dashboard's 用户管理 panel
-  (add / reset password / change role)
+  (add / reset password / change role / rename / delete)
 - **user** — sees only their own records, matched against the `user` field the
   collector reports. Local usernames must equal that field (e.g. the employee
   ID `A003688`), otherwise a user's view stays empty.
@@ -76,6 +76,10 @@ print('已重置')
 
 Users change their own password via 改密码 in the 账号 tab. Passwords
 are stored as PBKDF2-SHA256 hashes (600k iterations, per-user salt).
+
+Renaming a user migrates their historical event records to the new name
+(login identity and data stay linked; the password is unchanged). Deleting a
+user removes only the account — their historical event records are kept.
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
 front if the dashboard is reachable more widely.
