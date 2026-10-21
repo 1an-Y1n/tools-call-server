@@ -74,15 +74,8 @@ print('已重置')
 " "$HASH"
 ```
 
-Users manage their own account in the 账号 tab (rename / change password /
-aliases). Passwords are stored as PBKDF2-SHA256 hashes (600k iterations,
-per-user salt).
-
-**Aliases**: a user can register extra data-user names (e.g. employee ID and
-English name) in the 账号 tab; event records whose `user` field matches any of
-them are attributed to the account and merged into every view. Aliases cannot
-collide with another account's username or alias. Login still uses the
-username only.
+Users manage their own account in the 账号 tab (rename / change password).
+Passwords are stored as PBKDF2-SHA256 hashes (600k iterations, per-user salt).
 
 Renaming a user migrates their historical event records to the new name
 (login identity and data stay linked; the password is unchanged). Deleting a
