@@ -559,7 +559,7 @@ def esc_html(s):
             .replace("&", "\u0026amp;").replace("<", "\u0026lt;").replace(">", "\u0026gt;"))
 
 
-log = logging.getLogger("tools-call.smtp")
+log = logging.getLogger("uvicorn.error")
 
 
 def send_html_mail(to, subject, html):
@@ -570,6 +570,11 @@ def send_html_mail(to, subject, html):
     if not cfg["host"] or not cfg["user"]:
         log.warning("SMTP not configured: host=%r user=%r", cfg["host"], cfg["user"])
         raise RuntimeError("SMTP 未配置：请填写服务器与账号后保存，再发送")
+    msg = MIMEMultipart("alternative")
+    msg["From"] = cfg["user"]
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.attach(MIMEText(html, "html", "utf-8"))
     t0 = time.monotonic()
     try:
         if cfg["security"] == "ssl":
