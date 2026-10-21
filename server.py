@@ -593,7 +593,13 @@ def send_html_mail(to, subject, html):
             s.starttls()
             s.ehlo()
         if cfg["password"]:
-            s.login(cfg["user"], cfg["user"])
+            # Only authenticate when the server actually offers AUTH — relays
+            # trusted by source IP don't, and a stale stored password must not
+            # break those sends
+            if "auth" in s.esmtp_features:
+                s.login(cfg["user"], cfg["user"])
+            else:
+                log.info("server has no AUTH extension; skipping login")
         s.send_message(msg)
         log.info("SMTP send OK in %.1fs total", time.monotonic() - t0)
 
