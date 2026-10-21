@@ -70,6 +70,28 @@ SMTP_FROM = os.environ.get("SMTP_FROM", "") or SMTP_USER
 SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")
 
 
+def get_smtp_config():
+    # DB settings (admin GUI) override the env-var defaults
+    cfg = {"host": SMTP_HOST, "port": SMTP_PORT, "user": SMTP_USER,
+           "password": SMTP_PASSWORD, "from": SMTP_FROM, "security": SMTP_SECURITY}
+    with closing(connect()) as conn:
+        for k, v in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'smtp_%'"):
+            key = k[len("smtp_"):]
+            cfg[key] = int(v) if key == "port" and v.isdigit() else v
+    return cfg
+
+
+def set_smtp_settings(updates):
+    with closing(connect()) as conn:
+        for k, v in updates.items():
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"smtp_{k}", str(v)),
+            )
+        conn.commit()
+
+
 @asynccontextmanager
 async def lifespan(app):
     seed_default_admin()
@@ -134,6 +156,10 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'user',
     email TEXT,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
 );
 """
 
@@ -526,24 +552,25 @@ def esc_html(s):
 
 
 def send_html_mail(to, subject, html):
-    if not SMTP_HOST or not (SMTP_FROM or SMTP_USER):
-        raise RuntimeError("SMTP 未配置（需要 SMTP_HOST 与 SMTP_FROM/SMTP_USER 环境变量）")
+    cfg = get_smtp_config()
+    if not cfg["host"] or not (cfg["from"] or cfg["user"]):
+        raise RuntimeError("SMTP 未配置（在页面邮件设置中配置，或设置 SMTP_HOST/SMTP_FROM 环境变量）")
     msg = MIMEMultipart("alternative")
-    msg["From"] = SMTP_FROM or SMTP_USER
+    msg["From"] = cfg["from"] or cfg["user"]
     msg["To"] = to
     msg["Subject"] = subject
     msg.attach(MIMEText(html, "html", "utf-8"))
-    if SMTP_SECURITY == "ssl":
-        s = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30)
+    if cfg["security"] == "ssl":
+        s = smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=30)
     else:
-        s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30)
+        s = smtplib.SMTP(cfg["host"], cfg["port"], timeout=30)
     with s:
         s.ehlo()
-        if SMTP_SECURITY == "starttls":
+        if cfg["security"] == "starttls":
             s.starttls()
             s.ehlo()
-        if SMTP_PASSWORD:
-            s.login(SMTP_USER, SMTP_FROM or SMTP_USER)
+        if cfg["password"]:
+            s.login(cfg["user"], cfg["from"] or cfg["user"])
         s.send_message(msg)
 
 
@@ -664,6 +691,64 @@ def admin_send_all(user: dict = Depends(require_admin)):
             results.append({"user": r["username"], "status": "failed",
                             "reason": f"{type(exc).__name__}: {exc}"})
     return {"results": results}
+
+
+class SmtpBody(BaseModel):
+    host: str | None = None
+    port: int | None = None
+    user: str | None = None
+    password: str | None = None
+    from_addr: str | None = None
+    security: str | None = None
+
+
+class TestToBody(BaseModel):
+    to: str
+
+
+@app.get("/admin/smtp")
+def admin_get_smtp(user: dict = Depends(require_admin)):
+    cfg = get_smtp_config()
+    # 密码只写不可读：只返回是否已配置
+    return {"host": cfg["host"], "port": cfg["port"], "user": cfg["user"],
+            "password_set": bool(cfg["password"]), "from_addr": cfg["from"],
+            "security": cfg["security"]}
+
+
+@app.post("/admin/smtp")
+def admin_set_smtp(body: SmtpBody, user: dict = Depends(require_admin)):
+    updates = {}
+    if body.host is not None:
+        updates["host"] = body.host.strip()
+    if body.port is not None:
+        updates["port"] = body.port
+    if body.user is not None:
+        updates["user"] = body.user.strip()
+    if body.password is not None:
+        # 字段存在但为空 = 清除密码（改用免认证中继）；字段缺省 = 保持不变
+        updates["password"] = body.password
+    if body.from_addr is not None:
+        updates["from"] = body.from_addr.strip()
+    if body.security is not None:
+        if body.security not in ("starttls", "ssl", "none"):
+            raise HTTPException(status_code=400, detail="security 必须是 starttls/ssl/none")
+        updates["security"] = body.security
+    if updates:
+        set_smtp_settings(updates)
+    return {"ok": True}
+
+
+@app.post("/admin/smtp/test")
+def admin_test_smtp(body: TestToBody, user: dict = Depends(require_admin)):
+    to = body.to.strip()
+    if not EMAIL_RE.match(to):
+        raise HTTPException(status_code=400, detail="邮箱格式不正确")
+    try:
+        send_html_mail(to, "tools-call-server 测试邮件",
+                       '<p style="font-size:14px">SMTP 配置测试成功，报告邮件将使用此发件配置。</p>')
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"发送失败: {type(exc).__name__}: {exc}")
+    return {"ok": True}
 
 
 def skill_label(skill, command):

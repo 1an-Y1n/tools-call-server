@@ -96,11 +96,15 @@ configured at once (全部发送报告 — users without data are skipped). The
 report is email-client-safe HTML: KPI cards plus tool / skill / daily tables
 with inline progress bars (no JS — renders in Outlook).
 
-Sending uses SMTP with the `SMTP_*` environment variables above (defaults
-point at Office 365). For Microsoft 365 the mailbox must allow SMTP AUTH —
-if the tenant disables it, ask IT to enable SMTP AUTH for the sender
-mailbox, or use an app password when MFA is on. Without `SMTP_USER`/
-`SMTP_PASSWORD` configured, the send endpoints return a clear error.
+The sender (SMTP) configuration lives in the 账号 tab's 邮件发送设置 card
+(admin-only): server / port / security (STARTTLS default, SSL, none) /
+sender mailbox + password / From address, plus a 测试发送 button to verify.
+Settings are stored in the DB and override the `SMTP_*` environment
+variables (which remain as fallback defaults); the password is write-only —
+it is never returned to the page. For Microsoft 365 the sender mailbox must
+allow SMTP AUTH — if the tenant disables it, ask IT to enable SMTP AUTH, or
+use an app password when MFA is on. Without any sender configured, the send
+endpoints return a clear error.
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
 front if the dashboard is reachable more widely.

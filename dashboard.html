@@ -169,6 +169,35 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
         <span class="muted" id="pw-msg"></span>
       </div>
     </div>
+    <div class="card" id="smtp-card" style="display:none"><div class="ttl">邮件发送设置（Outlook）</div>
+      <div class="toolbar">
+        <span class="muted">服务器</span>
+        <input id="smtp-host" size="20" placeholder="smtp.office365.com">
+        <span class="muted">端口</span>
+        <input id="smtp-port" size="5" placeholder="587">
+        <span class="muted">安全</span>
+        <select id="smtp-security">
+          <option value="starttls">STARTTLS</option>
+          <option value="ssl">SSL</option>
+          <option value="none">无加密</option>
+        </select>
+      </div>
+      <div class="toolbar">
+        <span class="muted">账号</span>
+        <input id="smtp-user" size="24" placeholder="发件邮箱">
+        <span class="muted">密码</span>
+        <span class="pwwrap"><input id="smtp-pass" type="password" size="18" placeholder="留空保持不变" autocomplete="new-password"><button type="button" class="pweye" id="eye-smtp-pass" tabindex="-1"></button></span>
+      </div>
+      <div class="toolbar">
+        <span class="muted">发件人</span>
+        <input id="smtp-from" size="24" placeholder="默认同账号">
+        <span class="muted">测试收件</span>
+        <input id="smtp-test-to" size="24" placeholder="test@sercomm.com">
+        <button id="smtp-test">测试发送</button>
+        <button class="primary" id="smtp-save">保存设置</button>
+        <span class="muted" id="smtp-msg"></span>
+      </div>
+    </div>
     <div class="card" id="admin-card" style="display:none"><div class="ttl">用户管理</div>
       <div class="toolbar">
         <input id="nu-name" placeholder="用户名（需与数据中的 user 字段一致）" size="30">
@@ -289,6 +318,7 @@ function bindEye(btnId, inputId){
 bindEye("eye-pw-old", "pw-old");
 bindEye("eye-pw-new", "pw-new");
 bindEye("eye-nu-pass", "nu-pass");
+bindEye("eye-smtp-pass", "smtp-pass");
 
 function knownUsers(d){
   return Object.entries(d.by_user || {}).filter(u => u[0] !== "<unknown>").sort((a,b) => b[1] - a[1]);
@@ -577,6 +607,47 @@ document.getElementById("send-all").onclick = async () => {
   }
 };
 
+async function loadSmtp(){
+  const r = await fetch("/admin/smtp");
+  if (r.status === 401){ window.location.href = "/login"; return; }
+  if (!r.ok) return;
+  const c = await r.json();
+  document.getElementById("smtp-host").value = c.host || "";
+  document.getElementById("smtp-port").value = c.port || "";
+  document.getElementById("smtp-user").value = c.user || "";
+  document.getElementById("smtp-pass").value = "";
+  document.getElementById("smtp-pass").placeholder = c.password_set ? "已配置（留空保持不变）" : "发件邮箱密码";
+  document.getElementById("smtp-from").value = c.from_addr || "";
+  document.getElementById("smtp-security").value = c.security || "starttls";
+}
+
+document.getElementById("smtp-save").onclick = async () => {
+  const el = document.getElementById("smtp-msg");
+  const body = {
+    host: document.getElementById("smtp-host").value.trim(),
+    port: parseInt(document.getElementById("smtp-port").value, 10) || null,
+    user: document.getElementById("smtp-user").value.trim(),
+    from_addr: document.getElementById("smtp-from").value.trim(),
+    security: document.getElementById("smtp-security").value,
+  };
+  const pass = document.getElementById("smtp-pass").value;
+  if (pass) body.password = pass;
+  const r = await api("/admin/smtp", body);
+  el.textContent = r.ok ? "已保存" : await errDetail(r);
+  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
+  if (r.ok) loadSmtp();
+};
+
+document.getElementById("smtp-test").onclick = async () => {
+  const el = document.getElementById("smtp-msg");
+  const to = document.getElementById("smtp-test-to").value.trim();
+  if (!to){ el.textContent = "请填写测试收件邮箱"; el.style.color = "#d4537e"; return; }
+  el.textContent = "发送中…"; el.style.color = "#9ca3af";
+  const r = await api("/admin/smtp/test", { to });
+  el.textContent = r.ok ? "测试邮件已发送" : await errDetail(r);
+  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
+};
+
 if (USER && USER.name){
   document.getElementById("user-box").innerHTML =
     `${esc(USER.name)}${isAdmin ? ' <span class="pill">管理员</span>' : ""}` +
@@ -588,7 +659,9 @@ if (USER && USER.name){
   };
   if (isAdmin){
     document.getElementById("admin-card").style.display = "";
+    document.getElementById("smtp-card").style.display = "";
     loadUsers();
+    loadSmtp();
   } else {
     document.getElementById("k-users-card").style.display = "none";
     document.getElementById("tool-user-wrap").style.display = "none";
