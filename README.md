@@ -12,7 +12,7 @@ collectors.
 # 1. Get the code
 git clone <your repo> && cd tools-call-server      # or: scp -r tools-call-server/ user@server:/opt/
 
-# 2. Python 3.10+ and dependencies (venv is the production-standard way)
+# 2. Python 3.8+ and dependencies (venv is the production-standard way)
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 

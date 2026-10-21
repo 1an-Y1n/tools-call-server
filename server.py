@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -706,11 +707,11 @@ def admin_send_all(user: dict = Depends(require_admin)):
 
 
 class SmtpBody(BaseModel):
-    host: str | None = None
-    port: int | None = None
-    user: str | None = None
-    password: str | None = None
-    security: str | None = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    user: Optional[str] = None
+    password: Optional[str] = None
+    security: Optional[str] = None
 
 
 class TestToBody(BaseModel):
