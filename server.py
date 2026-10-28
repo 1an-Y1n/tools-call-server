@@ -5,6 +5,11 @@ collector) into SQLite. Local-account login (admin/user roles) protects the
 dashboard and stats API — regular users only see their own records; the ingest
 endpoint stays open for collectors. A default admin SUPER_ADMIN / SUPER_ADMIN
 is seeded on first start (empty users table) — change it after first login.
+
+Windowed usage reports are emailed per user, plus a team aggregate (team
+totals + per-person overview) to every admin with a configured mailbox:
+scheduled weekly (previous ISO week) or daily (yesterday), or manually (last
+7 days).
 """
 
 import hashlib
@@ -20,7 +25,7 @@ import sys
 import threading
 import time
 from contextlib import asynccontextmanager, closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -635,31 +640,320 @@ def _report_rows(rows, color):
     return h + "</table>"
 
 
-def build_report_html(name, stats):
-    gen = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    tools = sorted(stats["by_tool"].items(), key=lambda x: -x[1])[:15]
-    skills = sorted(stats["by_skill"].items(), key=lambda x: -x[1])[:15]
-    days = sorted(stats["by_day"].items())[-30:]
+def _iso_utc(dt):
+    # Local datetime -> UTC ISO string in the same format as events.timestamp,
+    # so lexicographic comparison in SQL matches chronological order
+    return dt.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _report_window(mode):
+    """Window for a report run: UTC boundaries plus display labels.
+
+    weekly: the previous complete ISO week (Mon 00:00 to next Mon 00:00, local)
+    daily:  yesterday (local time)
+    manual: the last 7 days ending now
+    """
+    local = datetime.now().astimezone()
+    if mode == "weekly":
+        end = (local - timedelta(days=local.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=7)
+        iso = start.isocalendar()
+        subject = f"{iso[0]}-W{iso[1]} ({start:%m-%d} ~ {end - timedelta(days=1):%m-%d})"
+        meta = f"{start:%Y-%m-%d} ~ {end - timedelta(days=1):%Y-%m-%d}（7 天）"
+        kind = "周报"
+    elif mode == "daily":
+        end = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=1)
+        subject = f"{start:%m-%d}"
+        meta = f"{start:%Y-%m-%d}（1 天）"
+        kind = "日报"
+    else:  # manual
+        end = local
+        start = end - timedelta(days=7)
+        subject = f"最近 7 天 ({start:%m-%d} ~ {end:%m-%d})"
+        meta = f"最近 7 天（{start:%Y-%m-%d} ~ {end:%Y-%m-%d}）"
+        kind = "报告"
+    return {"kind": kind, "subject": subject, "meta": meta,
+            "start": _iso_utc(start), "end": _iso_utc(end),
+            # zero-use skills: no call within the 14 days before the window end
+            "lookback_start": _iso_utc(end - timedelta(days=14))}
+
+
+def _mcp_server_of(tool_name):
+    # MCP tool calls are named mcp__<server>__<tool>; anything else is builtin
+    if not tool_name or not tool_name.startswith("mcp__"):
+        return None
+    parts = tool_name.split("__", 2)
+    return parts[1] if len(parts) == 3 else None
+
+
+def _project_name_of(project_dir):
+    return (project_dir or "").rstrip("/").split("/")[-1] or "<unknown>"
+
+
+def _idle_skills(conn, flt, args, end, since):
+    """Skills used before `end` but with zero calls in [since, end)."""
+    ever = conn.execute(
+        "SELECT skill, MAX(timestamp) AS last FROM events"
+        f" WHERE type = 'skill_invoke' AND skill IS NOT NULL{flt} AND timestamp < ? GROUP BY skill",
+        args + [end],
+    ).fetchall()
+    recent = {r[0] for r in conn.execute(
+        "SELECT skill FROM events WHERE type = 'skill_invoke' AND skill IS NOT NULL"
+        f"{flt} AND timestamp >= ? AND timestamp < ? GROUP BY skill",
+        args + [since, end],
+    )}
+    return sorted(({"name": r["skill"], "last": r["last"]} for r in ever if r["skill"] not in recent),
+                  key=lambda s: s["last"] or "")
+
+
+def _idle_mcp(conn, flt, args, end, since):
+    """MCP servers used before `end` but with zero calls in [since, end)."""
+    ever = {}
+    for r in conn.execute(
+        "SELECT tool_name, MAX(timestamp) AS last FROM events"
+        f" WHERE substr(tool_name, 1, 5) = 'mcp__'{flt} AND timestamp < ? GROUP BY tool_name",
+        args + [end],
+    ):
+        server = _mcp_server_of(r["tool_name"])
+        if server and (server not in ever or r["last"] > ever[server]):
+            ever[server] = r["last"]
+    recent = set()
+    for r in conn.execute(
+        "SELECT tool_name FROM events WHERE substr(tool_name, 1, 5) = 'mcp__'"
+        f"{flt} AND timestamp >= ? AND timestamp < ? GROUP BY tool_name",
+        args + [since, end],
+    ):
+        server = _mcp_server_of(r["tool_name"])
+        if server:
+            recent.add(server)
+    return sorted(({"name": s, "last": t} for s, t in ever.items() if s not in recent),
+                  key=lambda m: m["last"] or "")
+
+
+def compute_report(user, win):
+    """Windowed stats for the email reports (the dashboard keeps compute_stats).
+
+    user=None aggregates the whole team; otherwise stats are restricted to
+    that user, matching the collector's `user` field.
+    """
+    flt = " AND user = ?" if user else ""
+    args = [user] if user else []
+    w = " WHERE timestamp >= ? AND timestamp < ?" + flt
+    wargs = [win["start"], win["end"]] + args
+    team = user is None
+    with closing(connect()) as conn:
+        conn.row_factory = sqlite3.Row
+        totals = conn.execute(
+            "SELECT COUNT(DISTINCT session_id) AS sessions,"
+            " SUM(CASE WHEN type = 'tool_call' THEN 1 ELSE 0 END) AS tool_calls,"
+            " SUM(CASE WHEN type = 'skill_invoke' THEN 1 ELSE 0 END) AS skill_calls"
+            f" FROM events{w}", wargs,
+        ).fetchone()
+        by_project = {}
+        for r in conn.execute(
+            f"SELECT project_dir, COUNT(DISTINCT session_id) AS n FROM events{w} GROUP BY project_dir", wargs,
+        ):
+            name = _project_name_of(r["project_dir"])
+            by_project[name] = by_project.get(name, 0) + (r["n"] or 0)
+        by_mcp = {}
+        for r in conn.execute(
+            "SELECT tool_name, COUNT(*) AS n FROM events"
+            f"{w} AND type = 'tool_call' AND substr(tool_name, 1, 5) = 'mcp__' GROUP BY tool_name", wargs,
+        ):
+            server = _mcp_server_of(r["tool_name"])
+            if server:
+                by_mcp[server] = by_mcp.get(server, 0) + r["n"]
+        by_skill = {}
+        for r in conn.execute(
+            f"SELECT skill, skill_command, COUNT(*) AS n FROM events"
+            f"{w} AND type = 'skill_invoke' GROUP BY skill, skill_command", wargs,
+        ):
+            label = skill_label(r["skill"], r["skill_command"])
+            by_skill[label] = by_skill.get(label, 0) + r["n"]
+        by_tool = {}
+        for r in conn.execute(
+            "SELECT tool_name, COUNT(*) AS n FROM events"
+            f"{w} AND type = 'tool_call' AND (tool_name IS NULL OR substr(tool_name, 1, 5) != 'mcp__')"
+            " GROUP BY tool_name ORDER BY n DESC", wargs,
+        ):
+            by_tool[r["tool_name"] or "<unknown>"] = r["n"]
+        zero_skills = _idle_skills(conn, flt, args, win["end"], win["lookback_start"])
+        cold_mcp = _idle_mcp(conn, flt, args, win["end"], win["start"])
+        per_user, idle_accounts = [], []
+        if team:
+            rows = conn.execute(
+                "SELECT user, COUNT(DISTINCT session_id) AS sessions,"
+                " SUM(CASE WHEN type = 'tool_call' THEN 1 ELSE 0 END) AS tool_calls,"
+                " SUM(CASE WHEN type = 'skill_invoke' THEN 1 ELSE 0 END) AS skill_calls"
+                f" FROM events{w} AND user IS NOT NULL GROUP BY user"
+                " ORDER BY tool_calls DESC, sessions DESC", wargs,
+            ).fetchall()
+            tops = {}
+            for r in conn.execute(
+                "SELECT user, skill, COUNT(*) AS n FROM events"
+                f"{w} AND user IS NOT NULL AND type = 'skill_invoke' AND skill IS NOT NULL"
+                " GROUP BY user, skill", wargs,
+            ):
+                tops.setdefault(r["user"], []).append((r["skill"], r["n"]))
+            per_user = [{"name": r["user"], "sessions": r["sessions"] or 0,
+                         "tool_calls": r["tool_calls"] or 0, "skill_calls": r["skill_calls"] or 0,
+                         "top_skills": sorted(tops.get(r["user"], []), key=lambda x: -x[1])[:3]}
+                        for r in rows]
+            accounts = conn.execute(
+                "SELECT username FROM users WHERE email IS NOT NULL AND email != '' ORDER BY username"
+            ).fetchall()
+            active = {r["user"] for r in rows}
+            idle_accounts = [a["username"] for a in accounts if a["username"] not in active]
+
+    def _sorted(d):
+        return [{"name": k, "n": v} for k, v in sorted(d.items(), key=lambda x: -x[1])]
+
+    return {
+        "window": win,
+        "sessions": totals["sessions"] or 0,
+        "tool_calls": totals["tool_calls"] or 0,
+        "skill_calls": totals["skill_calls"] or 0,
+        "mcp_calls": sum(by_mcp.values()),
+        "users_active": len(per_user) if team else None,
+        "by_project": _sorted(by_project),
+        "by_mcp": _sorted(by_mcp),
+        "by_skill": _sorted(by_skill),
+        "by_tool": [{"name": k, "n": v} for k, v in by_tool.items()][:15],
+        "zero_skills": zero_skills,
+        "cold_mcp": cold_mcp,
+        "per_user": per_user,
+        "idle_accounts": idle_accounts,
+    }
+
+
+_REPORT_CARD = 'style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin:0 0 18px"'
+_REPORT_TTL = 'style="font-size:14px;font-weight:600;margin:0 0 12px;color:#31363c"'
+
+
+def _report_kpi_cards(items):
     kpi = 'style="padding:10px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:8px"'
-    card = 'style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin:0 0 18px"'
-    ttl = 'style="font-size:14px;font-weight:600;margin:0 0 12px;color:#31363c"'
-    clients = len([c for c in stats["by_client"] if c != "<unknown>"])
+    cells = []
+    for value, label in items:
+        cells.append(f'<td {kpi}><div style="font-size:22px;font-weight:600">{value}</div>'
+                     f'<div style="font-size:12px;color:#6b7280">{esc_html(label)}</div></td>'
+                     '<td style="width:12px">&nbsp;</td>')
+    return ('<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:18px"><tr>'
+            + "".join(cells) + "</tr></table>")
+
+
+def _report_table(headers, rows, empty_text="暂无数据"):
+    # headers: [(title, numeric?)]; cells: str (escaped here) or number
+    if not rows:
+        return f'<div style="color:#9ca3af;padding:8px 0">{esc_html(empty_text)}</div>'
+    th = 'style="padding:8px 10px;background:#f7f8fa;color:#4b5563;border-bottom:1px solid #e5e7eb;text-align:left"'
+    td = 'style="padding:8px 10px;border-bottom:1px solid #f0f1f3;vertical-align:middle"'
+    right = ' align="right"'
+    parts = ['<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:13px"><tr>']
+    for title, num in headers:
+        parts.append(f"<th {th}{right if num else ''}>{esc_html(title)}</th>")
+    parts.append("</tr>")
+    for row in rows:
+        parts.append("<tr>")
+        for (_, num), cell in zip(headers, row):
+            body = cell if isinstance(cell, (int, float)) else esc_html(cell)
+            parts.append(f"<td {td}{right if num else ''}>{body}</td>")
+        parts.append("</tr>")
+    parts.append("</table>")
+    return "".join(parts)
+
+
+def _report_warn_card(rep):
+    zero, cold = rep["zero_skills"], rep["cold_mcp"]
+    n = len(zero) + len(cold)
+    inner = ""
+    if zero:
+        inner += ('<div style="font-weight:600;margin:0 0 6px">零使用 skill（14 天内 0 次调用）</div>'
+                  + _report_table([("Skill", 0), ("上次使用", 1)],
+                                  [[s["name"], (s["last"] or "")[:10]] for s in zero]))
+    if cold:
+        inner += ('<div style="font-weight:600;margin:12px 0 6px">MCP 冷置（本窗口 0 次调用，考虑禁用以省启动开销）</div>'
+                  + _report_table([("MCP server", 0), ("上次使用", 1)],
+                                  [[s["name"], (s["last"] or "")[:10]] for s in cold]))
+    if not inner:
+        inner = '<div style="color:#1d9e75;padding:4px 0">无预警，一切正常。</div>'
+    return (f"<div {_REPORT_CARD}><div {_REPORT_TTL}>该改什么（预警 {n} 条）</div>{inner}"
+            '<div style="color:#9ca3af;font-size:12px;margin-top:10px">'
+            "零使用/冷置仅覆盖服务端收到过调用记录的工具；从未上报过的工具不在此列。</div></div>")
+
+
+def _report_bar_card(title, rows, color):
+    return f"<div {_REPORT_CARD}><div {_REPORT_TTL}>{esc_html(title)}</div>{_report_rows(rows, color)}</div>"
+
+
+def _team_overview_card(rep):
+    rows = [[u["name"], u["sessions"], u["tool_calls"], u["skill_calls"],
+             "，".join(f"{s} {n}" for s, n in u["top_skills"]) or "-"] for u in rep["per_user"]]
+    body = _report_table(
+        [("用户", 0), ("会话", 1), ("工具调用", 1), ("Skill 调用", 1), ("主要 Skill", 0)], rows)
+    if rep["idle_accounts"]:
+        body += ('<div style="color:#9ca3af;font-size:12px;margin-top:10px">本窗口无数据账号：'
+                 + esc_html("、".join(rep["idle_accounts"])) + "</div>")
+    return f"<div {_REPORT_CARD}><div {_REPORT_TTL}>人员概览</div>{body}</div>"
+
+
+def _report_body(rep, overview=False):
+    parts = [_report_warn_card(rep)]
+    if overview:
+        parts.append(_team_overview_card(rep))
+    parts += [
+        _report_bar_card("按项目分布（会话数）", rep["by_project"], "#3b7ddd"),
+        _report_bar_card("MCP 调用（按 server 合并）", rep["by_mcp"], "#7f77dd"),
+        _report_bar_card("Skill 调用", rep["by_skill"], "#1d9e75"),
+        _report_bar_card("内置工具 Top 15", rep["by_tool"], "#3b7ddd"),
+    ]
+    return "".join(parts)
+
+
+def _report_page(title, meta, body):
+    gen = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!doctype html><html><body style="margin:0;background:#f5f6f8;font-family:-apple-system,'Segoe UI','Microsoft YaHei',Roboto,sans-serif;font-size:14px;color:#1f2328">
 <div style="max-width:900px;margin:0 auto;padding:24px">
-  <div style="font-size:20px;font-weight:600;margin-bottom:4px">Agent 工具 / Skill 使用统计 — {esc_html(name)}</div>
-  <div style="color:#6b7280;font-size:13px;margin-bottom:18px">生成于 {gen} · 数据范围：全部历史</div>
-  <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:18px"><tr>
-    <td {kpi}><div style="font-size:22px;font-weight:600">{stats['total']}</div><div style="font-size:12px;color:#6b7280">总记录数</div></td>
-    <td style="width:12px">&nbsp;</td>
-    <td {kpi}><div style="font-size:22px;font-weight:600">{clients}</div><div style="font-size:12px;color:#6b7280">Client 数</div></td>
-    <td style="width:12px">&nbsp;</td>
-    <td {kpi}><div style="font-size:13px;font-weight:600;padding-top:6px">{esc_html(stats['last_timestamp'] or '-')}</div><div style="font-size:12px;color:#6b7280">最新记录时间</div></td>
-  </tr></table>
-  <div {card}><div {ttl}>工具调用次数（Top 15）</div>{_report_rows([{'name': t, 'n': n} for t, n in tools], '#3b7ddd')}</div>
-  <div {card}><div {ttl}>Skill 调用次数（Top 15）</div>{_report_rows([{'name': s, 'n': n} for s, n in skills], '#1d9e75')}</div>
-  <div {card}><div {ttl}>每日记录趋势（最近 30 天）</div>{_report_rows([{'name': d, 'n': n} for d, n in days], '#3b7ddd')}</div>
+  <div style="font-size:20px;font-weight:600;margin-bottom:4px">{title}</div>
+  <div style="color:#6b7280;font-size:13px;margin-bottom:18px">窗口 {meta} · 生成于 {gen}（tools-call-server 自动统计）</div>
+  {body}
   <div style="color:#9ca3af;font-size:12px">本邮件由 tools-call-server 自动发送</div>
 </div></body></html>"""
+
+
+def report_subject(rep, who=None):
+    win = rep["window"]
+    n = len(rep["zero_skills"]) + len(rep["cold_mcp"])
+    if who is None:
+        return f"[团队工具使用{win['kind']}] {win['subject']}（预警 {n} 条）"
+    return f"[工具使用{win['kind']}] {who} · {win['subject']}（预警 {n} 条）"
+
+
+def build_report_html(name, rep):
+    win = rep["window"]
+    title = f"工具使用{win['kind']} — {esc_html(name)} · {win['subject']}"
+    meta = f"{win['meta']} · 会话 {rep['sessions']} · 工具调用 {rep['tool_calls'] + rep['skill_calls']}"
+    body = _report_kpi_cards([
+        (rep["sessions"], "会话数"),
+        (rep["tool_calls"], "工具调用"),
+        (rep["skill_calls"], "Skill 调用"),
+        (rep["mcp_calls"], "MCP 调用"),
+    ]) + _report_body(rep)
+    return _report_page(title, meta, body)
+
+
+def build_team_report_html(rep):
+    win = rep["window"]
+    title = f"团队工具使用{win['kind']} · {win['subject']}"
+    meta = (f"{win['meta']} · 活跃用户 {rep['users_active']} · 会话 {rep['sessions']}"
+            f" · 工具调用 {rep['tool_calls'] + rep['skill_calls']}")
+    body = _report_kpi_cards([
+        (rep["users_active"], "活跃用户"),
+        (rep["sessions"], "会话数"),
+        (rep["tool_calls"] + rep["skill_calls"], "工具调用"),
+        (rep["skill_calls"], "Skill 调用"),
+    ]) + _report_body(rep, overview=True)
+    return _report_page(title, meta, body)
 
 
 def _smtp_error_detail(exc):
@@ -688,11 +982,11 @@ def admin_set_email(username: str, body: EmailBody, user: dict = Depends(require
     return {"ok": True}
 
 
-def _send_user_report(username, email):
-    stats = compute_stats(username)
-    if stats["total"] == 0:
-        return "skipped", "无数据"
-    send_html_mail(email, f"Agent 工具 / Skill 使用统计报告 — {username}", build_report_html(username, stats))
+def _send_user_report(username, email, win):
+    rep = compute_report(username, win)
+    if rep["tool_calls"] + rep["skill_calls"] == 0:
+        return "skipped", "窗口内无数据"
+    send_html_mail(email, report_subject(rep, who=username), build_report_html(username, rep))
     return "sent", ""
 
 
@@ -704,7 +998,7 @@ def admin_send_report(username: str, user: dict = Depends(require_admin)):
     if not row["email"]:
         raise HTTPException(status_code=400, detail="该用户未配置邮箱")
     try:
-        status, reason = _send_user_report(username, row["email"])
+        status, reason = _send_user_report(username, row["email"], _report_window("manual"))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -714,7 +1008,44 @@ def admin_send_report(username: str, user: dict = Depends(require_admin)):
     return {"ok": True}
 
 
-def _do_send_all():
+def _send_team_report(win):
+    """Team aggregate report to every admin with a configured mailbox."""
+    with closing(connect()) as conn:
+        conn.row_factory = sqlite3.Row
+        admins = conn.execute(
+            "SELECT username, email FROM users WHERE role = 'admin' AND email IS NOT NULL AND email != ''"
+        ).fetchall()
+    if not admins:
+        return "skipped", "没有配置邮箱的管理员", []
+    rep = compute_report(None, win)
+    if rep["tool_calls"] + rep["skill_calls"] == 0:
+        return "skipped", "全团队窗口内无数据", []
+    subject = report_subject(rep)
+    html = build_team_report_html(rep)
+    results = []
+    for a in admins:
+        try:
+            send_html_mail(a["email"], subject, html)
+            results.append({"to": a["email"], "status": "sent", "reason": ""})
+        except Exception as exc:
+            results.append({"to": a["email"], "status": "failed",
+                            "reason": f"{type(exc).__name__}: {exc}"})
+    status = "sent" if any(r["status"] == "sent" for r in results) else "failed"
+    return status, "", results
+
+
+@app.post("/admin/send_team_report")
+def admin_send_team_report(user: dict = Depends(require_admin)):
+    status, reason, recipients = _send_team_report(_report_window("manual"))
+    if status == "skipped":
+        raise HTTPException(status_code=400, detail=reason)
+    failed = [r for r in recipients if r["status"] == "failed"]
+    if failed:
+        raise HTTPException(status_code=502, detail=f"发送失败: {failed[0]['reason']}")
+    return {"ok": True, "sent_to": [r["to"] for r in recipients if r["status"] == "sent"]}
+
+
+def _do_send_all(win):
     # Shared by the manual bulk endpoint and the scheduler
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
@@ -724,19 +1055,21 @@ def _do_send_all():
     results = []
     for r in users:
         try:
-            status, reason = _send_user_report(r["username"], r["email"])
+            status, reason = _send_user_report(r["username"], r["email"], win)
             results.append({"user": r["username"], "status": status, "reason": reason})
         except RuntimeError as exc:
             results.append({"user": r["username"], "status": "failed", "reason": str(exc)})
         except Exception as exc:
             results.append({"user": r["username"], "status": "failed",
                             "reason": f"{type(exc).__name__}: {exc}"})
-    return results
+    team_status, team_reason, team_recipients = _send_team_report(win)
+    return {"results": results,
+            "team": {"status": team_status, "reason": team_reason, "recipients": team_recipients}}
 
 
 @app.post("/admin/send_all_reports")
 def admin_send_all(user: dict = Depends(require_admin)):
-    return {"results": _do_send_all()}
+    return _do_send_all(_report_window("manual"))
 
 
 class SmtpBody(BaseModel):
@@ -845,12 +1178,15 @@ def _scheduler_tick():
     period = _schedule_period(now, cfg["mode"])
     if cfg["last_period"] == period:
         return
-    results = _do_send_all()
+    outcome = _do_send_all(_report_window(cfg["mode"]))
     set_schedule_settings({"last_period": period, "last_sent": now_iso()})
-    log.info("scheduled report run (%s): sent=%s skipped=%s failed=%s", cfg["mode"],
-             len([r for r in results if r["status"] == "sent"]),
-             len([r for r in results if r["status"] == "skipped"]),
-             len([r for r in results if r["status"] == "failed"]))
+    team = outcome.get("team", {})
+    log.info("scheduled report run (%s): sent=%s skipped=%s failed=%s team=%s recipients=%s",
+             cfg["mode"],
+             len([r for r in outcome["results"] if r["status"] == "sent"]),
+             len([r for r in outcome["results"] if r["status"] == "skipped"]),
+             len([r for r in outcome["results"] if r["status"] == "failed"]),
+             team.get("status"), len(team.get("recipients", [])))
 
 
 def _report_scheduler():

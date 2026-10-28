@@ -218,6 +218,7 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
         <select id="nu-role"><option value="user">普通用户</option><option value="admin">管理员</option></select>
         <button class="primary" id="nu-add">添加用户</button>
         <button id="send-all">全部发送报告</button>
+        <button id="send-team">发送团队报告</button>
         <span class="muted" id="admin-msg"></span>
       </div>
       <div id="t-admin"></div>
@@ -565,7 +566,7 @@ document.addEventListener("click", async (ev) => {
     if (em === null || !em.trim()) return;
     url = `/admin/users/${encodeURIComponent(u)}/email`; body = { email: em.trim() };
   } else if (op === "sendrep"){
-    if (!confirm(`将 ${u} 的统计报告发送到其配置的邮箱？`)) return;
+    if (!confirm(`将 ${u} 的统计报告（最近 7 天窗口）发送到其配置的邮箱？`)) return;
     url = `/admin/users/${encodeURIComponent(u)}/send_report`; body = undefined;
   } else {
     if (!confirm(`确定删除用户 ${u}？账号不可恢复，历史调用记录保留。`)) return;
@@ -605,7 +606,7 @@ document.getElementById("pw-save").onclick = async () => {
 };
 
 document.getElementById("send-all").onclick = async () => {
-  if (!confirm("给所有已配置邮箱且有数据的用户发送统计报告？")) return;
+  if (!confirm("给所有已配置邮箱且有数据的用户发送统计报告（最近 7 天窗口），并向配置了邮箱的管理员发送团队汇总报告？")) return;
   adminMsg("发送中…", true);
   const r = await api("/admin/send_all_reports", {});
   if (r.ok){
@@ -613,7 +614,25 @@ document.getElementById("send-all").onclick = async () => {
     const sent = d.results.filter(x => x.status === "sent").length;
     const skipped = d.results.filter(x => x.status === "skipped").length;
     const failed = d.results.filter(x => x.status === "failed").length;
-    adminMsg(`发送 ${sent} · 跳过 ${skipped} · 失败 ${failed}`, failed === 0);
+    let msg = `发送 ${sent} · 跳过 ${skipped} · 失败 ${failed}`;
+    if (d.team){
+      msg += " · 团队报告: " + (d.team.status === "sent"
+        ? `已发 ${d.team.recipients.filter(x => x.status === "sent").length} 位管理员`
+        : `${d.team.status}${d.team.reason ? "（" + d.team.reason + "）" : ""}`);
+    }
+    adminMsg(msg, failed === 0 && (!d.team || d.team.status !== "failed"));
+  } else {
+    adminMsg(await errDetail(r), false);
+  }
+};
+
+document.getElementById("send-team").onclick = async () => {
+  if (!confirm("将团队汇总报告（团队聚合 + 每人概览，最近 7 天窗口）发送给所有配置了邮箱的管理员？")) return;
+  adminMsg("发送中…", true);
+  const r = await api("/admin/send_team_report", {});
+  if (r.ok){
+    const d = await r.json();
+    adminMsg(`团队报告已发送：${(d.sent_to || []).join("、")}`, true);
   } else {
     adminMsg(await errDetail(r), false);
   }

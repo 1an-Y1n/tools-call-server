@@ -92,9 +92,35 @@ user removes only the account — their historical event records are kept.
 
 Admins can configure each user's mailbox in the 用户管理 panel (邮箱 link),
 then send the user's stats as an email per user (发报告) or to everyone
-configured at once (全部发送报告 — users without data are skipped). The
-report is email-client-safe HTML: KPI cards plus tool / skill / daily tables
-with inline progress bars (no JS — renders in Outlook).
+configured at once (全部发送报告 — users without data in the window are
+skipped). The report is email-client-safe HTML (no JS — renders in Outlook).
+
+**Report content** (windowed, not all-history): a header line (window ·
+sessions · tool calls), KPI cards, then
+
+- 该改什么（预警 N 条）— zero-use skills (no call in the 14 days before the
+  window end, last-used date shown) and cold MCP servers (no call in the
+  window, last-used date shown). These only cover tools the server has
+  *seen* — the collector reports invocations, not the installed inventory,
+  so a tool that was never invoked cannot be listed.
+- 按项目分布（会话数）— sessions per project (project_dir basename)
+- MCP 调用（按 server 合并）— MCP tool calls merged by server
+  (`mcp__<server>__<tool>` → `<server>`)
+- Skill 调用 — skill invocation counts
+- 内置工具 Top 15 — builtin (non-MCP) tool calls
+
+**Team aggregate report**: 发送团队报告 (and every scheduled / bulk run)
+additionally sends one team report to **every admin with a configured
+mailbox** — the same sections computed team-wide plus a 人员概览 table
+(user → sessions / tool calls / skill calls / top skills) and a list of
+known accounts with no data in the window. It is the manager's one-email
+status view; each team member still receives their own personal report.
+
+**Windows**: scheduled 每周 covers the previous complete ISO week
+(Mon–Sun, server-local time, e.g. `2026-W43 (10-19 ~ 10-25)` in the
+subject); scheduled 每天 covers yesterday; manual sends cover the last
+7 days. The subject includes the window and the warning count
+(（预警 N 条）).
 
 The sender (SMTP) configuration lives in the 账号 tab's 邮件发送设置 card
 (admin-only): server / port / security (STARTTLS default, SSL, none) /
@@ -118,8 +144,9 @@ empty. Verify with 测试发送.
 enables automatic bulk reports — 每天 or 每周 (pick weekday) at a HH:MM
 time in the server's local timezone. A background thread checks every
 minute; each period (day / ISO week) is sent at most once, and a send
-missed while the server was down is caught up on the next tick. The card
-shows the last auto-send time.
+missed while the server was down is caught up on the next tick. Each run
+sends the per-user reports plus the team report. The card shows the last
+auto-send time.
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
 front if the dashboard is reachable more widely.
@@ -158,8 +185,13 @@ demand. Requires login; the header shows the signed-in user with 登出.
 ### Admin / account endpoints
 
 `GET /admin/users`, `POST /admin/users`, `POST /admin/users/{username}/password`,
-`POST /admin/users/{username}/role` — admin role required. `POST /me/password` —
-any logged-in user. `GET /login` / `POST /login` / `POST /logout` — open.
+`POST /admin/users/{username}/role`, `POST /admin/users/{username}/email`,
+`POST /admin/users/{username}/send_report` (personal report, last 7 days),
+`POST /admin/send_all_reports` (per-user reports + team report, last 7 days),
+`POST /admin/send_team_report` (team report to all admins with a mailbox),
+`GET/POST /admin/smtp`, `POST /admin/smtp/test`, `GET/POST /admin/schedule` —
+admin role required. `POST /me/password` — any logged-in user.
+`GET /login` / `POST /login` / `POST /logout` — open.
 
 ### `GET /health`
 
