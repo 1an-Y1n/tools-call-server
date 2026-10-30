@@ -144,9 +144,10 @@ empty. Verify with 测试发送.
 enables automatic bulk reports — 每天 or 每周 (pick weekday) at a HH:MM
 time in the server's local timezone. A background thread checks every
 minute; each period (day / ISO week) is sent at most once, and a send
-missed while the server was down is caught up on the next tick. Each run
-sends the per-user reports plus the team report. The card shows the last
-auto-send time.
+missed while the server was down is caught up on the next tick — for
+weekly mode on any later day of the same ISO week (a week missed without
+the server coming back up at all is skipped). Each run sends the per-user
+reports plus the team report. The card shows the last auto-send time.
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
 front if the dashboard is reachable more widely.

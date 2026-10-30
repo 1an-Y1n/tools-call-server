@@ -756,14 +756,19 @@ def compute_report(user, win):
         ):
             name = _project_name_of(r["project_dir"])
             by_project[name] = by_project.get(name, 0) + (r["n"] or 0)
-        by_mcp = {}
+        by_mcp, by_tool = {}, {}
         for r in conn.execute(
-            "SELECT tool_name, COUNT(*) AS n FROM events"
-            f"{w} AND type = 'tool_call' AND substr(tool_name, 1, 5) = 'mcp__' GROUP BY tool_name", wargs,
+            f"SELECT tool_name, COUNT(*) AS n FROM events{w} AND type = 'tool_call' GROUP BY tool_name",
+            wargs,
         ):
+            # classify by the parsed server so malformed mcp__ names (no server
+            # part) stay visible in the builtin table instead of vanishing
+            # from both sections while still counting towards the KPI total
             server = _mcp_server_of(r["tool_name"])
             if server:
                 by_mcp[server] = by_mcp.get(server, 0) + r["n"]
+            else:
+                by_tool[r["tool_name"] or "<unknown>"] = r["n"]
         by_skill = {}
         for r in conn.execute(
             f"SELECT skill, skill_command, COUNT(*) AS n FROM events"
@@ -771,13 +776,6 @@ def compute_report(user, win):
         ):
             label = skill_label(r["skill"], r["skill_command"])
             by_skill[label] = by_skill.get(label, 0) + r["n"]
-        by_tool = {}
-        for r in conn.execute(
-            "SELECT tool_name, COUNT(*) AS n FROM events"
-            f"{w} AND type = 'tool_call' AND (tool_name IS NULL OR substr(tool_name, 1, 5) != 'mcp__')"
-            " GROUP BY tool_name ORDER BY n DESC", wargs,
-        ):
-            by_tool[r["tool_name"] or "<unknown>"] = r["n"]
         zero_skills = _idle_skills(conn, flt, args, win["end"], win["lookback_start"])
         cold_mcp = _idle_mcp(conn, flt, args, win["end"], win["start"])
         per_user, idle_accounts = [], []
@@ -800,9 +798,9 @@ def compute_report(user, win):
                          "tool_calls": r["tool_calls"] or 0, "skill_calls": r["skill_calls"] or 0,
                          "top_skills": sorted(tops.get(r["user"], []), key=lambda x: -x[1])[:3]}
                         for r in rows]
-            accounts = conn.execute(
-                "SELECT username FROM users WHERE email IS NOT NULL AND email != '' ORDER BY username"
-            ).fetchall()
+            # every known account, so accounts without a configured mailbox
+            # (often the ones a manager most needs to see) are listed too
+            accounts = conn.execute("SELECT username FROM users ORDER BY username").fetchall()
             active = {r["user"] for r in rows}
             idle_accounts = [a["username"] for a in accounts if a["username"] not in active]
 
@@ -819,7 +817,7 @@ def compute_report(user, win):
         "by_project": _sorted(by_project),
         "by_mcp": _sorted(by_mcp),
         "by_skill": _sorted(by_skill),
-        "by_tool": [{"name": k, "n": v} for k, v in by_tool.items()][:15],
+        "by_tool": _sorted(by_tool)[:15],
         "zero_skills": zero_skills,
         "cold_mcp": cold_mcp,
         "per_user": per_user,
@@ -1036,7 +1034,10 @@ def _send_team_report(win):
 
 @app.post("/admin/send_team_report")
 def admin_send_team_report(user: dict = Depends(require_admin)):
-    status, reason, recipients = _send_team_report(_report_window("manual"))
+    try:
+        status, reason, recipients = _send_team_report(_report_window("manual"))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"发送失败: {_smtp_error_detail(exc)}")
     if status == "skipped":
         raise HTTPException(status_code=400, detail=reason)
     failed = [r for r in recipients if r["status"] == "failed"]
@@ -1062,9 +1063,14 @@ def _do_send_all(win):
         except Exception as exc:
             results.append({"user": r["username"], "status": "failed",
                             "reason": f"{type(exc).__name__}: {exc}"})
-    team_status, team_reason, team_recipients = _send_team_report(win)
-    return {"results": results,
-            "team": {"status": team_status, "reason": team_reason, "recipients": team_recipients}}
+    # never let a team-report error escape: the scheduler must still persist
+    # last_period, or the next tick would re-send every personal report
+    try:
+        team_status, team_reason, team_recipients = _send_team_report(win)
+        team = {"status": team_status, "reason": team_reason, "recipients": team_recipients}
+    except Exception as exc:
+        team = {"status": "failed", "reason": f"{type(exc).__name__}: {exc}", "recipients": []}
+    return {"results": results, "team": team}
 
 
 @app.post("/admin/send_all_reports")
@@ -1166,7 +1172,10 @@ def _scheduler_tick():
     if cfg["mode"] not in ("daily", "weekly"):
         return
     now = datetime.now()
-    if cfg["mode"] == "weekly" and now.weekday() != cfg["day"]:
+    # weekly fires on the configured weekday or any later day of the same
+    # week, so a slot missed while the server was down is caught up instead
+    # of silently skipped; last_period still limits it to one send per week
+    if cfg["mode"] == "weekly" and now.weekday() < cfg["day"]:
         return
     try:
         hh, mm = (cfg["time"] or "09:00").split(":")[:2]
@@ -1187,6 +1196,11 @@ def _scheduler_tick():
              len([r for r in outcome["results"] if r["status"] == "skipped"]),
              len([r for r in outcome["results"] if r["status"] == "failed"]),
              team.get("status"), len(team.get("recipients", [])))
+    if team.get("status") == "skipped":
+        log.warning("team report skipped: %s", team.get("reason"))
+    for r in team.get("recipients", []):
+        if r["status"] == "failed":
+            log.warning("team report to %s failed: %s", r["to"], r["reason"])
 
 
 def _report_scheduler():
