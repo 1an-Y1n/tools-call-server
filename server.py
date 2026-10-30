@@ -1253,19 +1253,32 @@ def compute_stats(user=None):
         last = conn.execute(f"SELECT MAX(timestamp) AS ts FROM events{where_u}", args).fetchone()["ts"]
         tool_days, user_tools, user_skills, skill_days = {}, {}, {}, {}
         user_tool_days, user_skill_days = {}, {}
+        by_skill = {}
+        for r in by_skill_rows:
+            # same label can come from several skill_command rows — sum them,
+            # a dict comprehension would keep only the last row's count
+            label = skill_label(r["skill"], r["skill_command"])
+            by_skill[label] = by_skill.get(label, 0) + r["n"]
         for r in tool_day_rows:
             tool_days.setdefault(r["tool"], {})[r["day"]] = r["n"]
         for r in user_tool_rows:
             user_tools.setdefault(r["user"], {})[r["tool"]] = r["n"]
         for r in user_skill_rows:
-            user_skills.setdefault(r["user"], {})[skill_label(r["skill"], r["skill_command"])] = r["n"]
+            # same label can come from several skill_command rows — sum them,
+            # a plain assignment would keep only the last row's count
+            label = skill_label(r["skill"], r["skill_command"])
+            per_user_skills = user_skills.setdefault(r["user"], {})
+            per_user_skills[label] = per_user_skills.get(label, 0) + r["n"]
         for r in skill_day_rows:
-            skill_days.setdefault(skill_label(r["skill"], r["skill_command"]), {})[r["day"]] = r["n"]
+            label = skill_label(r["skill"], r["skill_command"])
+            per_label_days = skill_days.setdefault(label, {})
+            per_label_days[r["day"]] = per_label_days.get(r["day"], 0) + r["n"]
         for r in user_tool_day_rows:
             user_tool_days.setdefault(r["user"], {}).setdefault(r["tool"], {})[r["day"]] = r["n"]
         for r in user_skill_day_rows:
-            user_skill_days.setdefault(r["user"], {}).setdefault(
-                skill_label(r["skill"], r["skill_command"]), {})[r["day"]] = r["n"]
+            label = skill_label(r["skill"], r["skill_command"])
+            per_label_days = user_skill_days.setdefault(r["user"], {}).setdefault(label, {})
+            per_label_days[r["day"]] = per_label_days.get(r["day"], 0) + r["n"]
 
     def _valid_day(day):
         return bool(day) and len(day) == 10 and day[4] == "-" and day[7] == "-"
@@ -1275,7 +1288,7 @@ def compute_stats(user=None):
         "by_client": {(r["client_id"] or "<unknown>"): r["n"] for r in by_client},
         "by_user": {(r["user"] or "<unknown>"): r["n"] for r in by_user},
         "by_tool": {r["tool"]: r["n"] for r in by_tool},
-        "by_skill": {skill_label(r["skill"], r["skill_command"]): r["n"] for r in by_skill_rows},
+        "by_skill": by_skill,
         "by_day": {r["day"]: r["n"] for r in by_day if _valid_day(r["day"])},
         "tool_days": tool_days,
         "skill_days": skill_days,
