@@ -239,9 +239,20 @@ const PAL = ['#3b7ddd','#1d9e75','#e8a33d','#d4537e','#7f77dd','#43a7c4','#8fbf4
 const chartCache = {};
 
 function draw(id, opt){
+  const dom = document.getElementById(id);
+  // horizontal bar charts: grow the chart with the category count so every
+  // label gets its own row — at a fixed height ECharts overlaps labels once
+  // the rows drop below ~13px and the names stop matching the bars
+  const ya = Array.isArray(opt.yAxis) ? opt.yAxis[0] : opt.yAxis;
+  if (ya && ya.type === "category"){
+    if (!dom.dataset.cssH) dom.dataset.cssH = dom.getBoundingClientRect().height;
+    const h = Math.max(parseFloat(dom.dataset.cssH), ya.data.length * 22 + 30);
+    if (dom.style.height !== h + "px") dom.style.height = h + "px";
+  }
   let c = chartCache[id];
-  if (!c){ c = echarts.init(document.getElementById(id)); chartCache[id] = c; }
+  if (!c){ c = echarts.init(dom); chartCache[id] = c; }
   c.setOption(opt, true);
+  c.resize();
   return c;
 }
 function resizeAll(){ Object.values(chartCache).forEach(c => { try{ c.resize(); }catch(e){} }); }
