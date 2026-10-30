@@ -98,11 +98,6 @@ skipped). The report is email-client-safe HTML (no JS — renders in Outlook).
 **Report content** (windowed, not all-history): a header line (window ·
 sessions · tool calls), KPI cards, then
 
-- 该改什么（预警 N 条）— zero-use skills (no call in the 14 days before the
-  window end, last-used date shown) and cold MCP servers (no call in the
-  window, last-used date shown). These only cover tools the server has
-  *seen* — the collector reports invocations, not the installed inventory,
-  so a tool that was never invoked cannot be listed.
 - 按项目分布（会话数）— sessions per project (project_dir basename)
 - MCP 调用（按 server 合并）— MCP tool calls merged by server
   (`mcp__<server>__<tool>` → `<server>`)
@@ -119,8 +114,7 @@ status view; each team member still receives their own personal report.
 **Windows**: scheduled 每周 covers the previous complete ISO week
 (Mon–Sun, server-local time, e.g. `2026-W43 (10-19 ~ 10-25)` in the
 subject); scheduled 每天 covers yesterday; manual sends cover the last
-7 days. The subject includes the window and the warning count
-(（预警 N 条）).
+7 days. The subject includes the window.
 
 The sender (SMTP) configuration lives in the 账号 tab's 邮件发送设置 card
 (admin-only): server / port / security (STARTTLS default, SSL, none) /

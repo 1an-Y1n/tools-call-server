@@ -674,9 +674,7 @@ def _report_window(mode):
         meta = f"最近 7 天（{start:%Y-%m-%d} ~ {end:%Y-%m-%d}）"
         kind = "报告"
     return {"kind": kind, "subject": subject, "meta": meta,
-            "start": _iso_utc(start), "end": _iso_utc(end),
-            # zero-use skills: no call within the 14 days before the window end
-            "lookback_start": _iso_utc(end - timedelta(days=14))}
+            "start": _iso_utc(start), "end": _iso_utc(end)}
 
 
 def _mcp_server_of(tool_name):
@@ -689,46 +687,6 @@ def _mcp_server_of(tool_name):
 
 def _project_name_of(project_dir):
     return (project_dir or "").rstrip("/").split("/")[-1] or "<unknown>"
-
-
-def _idle_skills(conn, flt, args, end, since):
-    """Skills used before `end` but with zero calls in [since, end)."""
-    ever = conn.execute(
-        "SELECT skill, MAX(timestamp) AS last FROM events"
-        f" WHERE type = 'skill_invoke' AND skill IS NOT NULL{flt} AND timestamp < ? GROUP BY skill",
-        args + [end],
-    ).fetchall()
-    recent = {r[0] for r in conn.execute(
-        "SELECT skill FROM events WHERE type = 'skill_invoke' AND skill IS NOT NULL"
-        f"{flt} AND timestamp >= ? AND timestamp < ? GROUP BY skill",
-        args + [since, end],
-    )}
-    return sorted(({"name": r["skill"], "last": r["last"]} for r in ever if r["skill"] not in recent),
-                  key=lambda s: s["last"] or "")
-
-
-def _idle_mcp(conn, flt, args, end, since):
-    """MCP servers used before `end` but with zero calls in [since, end)."""
-    ever = {}
-    for r in conn.execute(
-        "SELECT tool_name, MAX(timestamp) AS last FROM events"
-        f" WHERE substr(tool_name, 1, 5) = 'mcp__'{flt} AND timestamp < ? GROUP BY tool_name",
-        args + [end],
-    ):
-        server = _mcp_server_of(r["tool_name"])
-        if server and (server not in ever or r["last"] > ever[server]):
-            ever[server] = r["last"]
-    recent = set()
-    for r in conn.execute(
-        "SELECT tool_name FROM events WHERE substr(tool_name, 1, 5) = 'mcp__'"
-        f"{flt} AND timestamp >= ? AND timestamp < ? GROUP BY tool_name",
-        args + [since, end],
-    ):
-        server = _mcp_server_of(r["tool_name"])
-        if server:
-            recent.add(server)
-    return sorted(({"name": s, "last": t} for s, t in ever.items() if s not in recent),
-                  key=lambda m: m["last"] or "")
 
 
 def compute_report(user, win):
@@ -776,8 +734,6 @@ def compute_report(user, win):
         ):
             label = skill_label(r["skill"], r["skill_command"])
             by_skill[label] = by_skill.get(label, 0) + r["n"]
-        zero_skills = _idle_skills(conn, flt, args, win["end"], win["lookback_start"])
-        cold_mcp = _idle_mcp(conn, flt, args, win["end"], win["start"])
         per_user, idle_accounts = [], []
         if team:
             rows = conn.execute(
@@ -818,8 +774,6 @@ def compute_report(user, win):
         "by_mcp": _sorted(by_mcp),
         "by_skill": _sorted(by_skill),
         "by_tool": _sorted(by_tool)[:15],
-        "zero_skills": zero_skills,
-        "cold_mcp": cold_mcp,
         "per_user": per_user,
         "idle_accounts": idle_accounts,
     }
@@ -861,25 +815,6 @@ def _report_table(headers, rows, empty_text="暂无数据"):
     return "".join(parts)
 
 
-def _report_warn_card(rep):
-    zero, cold = rep["zero_skills"], rep["cold_mcp"]
-    n = len(zero) + len(cold)
-    inner = ""
-    if zero:
-        inner += ('<div style="font-weight:600;margin:0 0 6px">零使用 skill（14 天内 0 次调用）</div>'
-                  + _report_table([("Skill", 0), ("上次使用", 1)],
-                                  [[s["name"], (s["last"] or "")[:10]] for s in zero]))
-    if cold:
-        inner += ('<div style="font-weight:600;margin:12px 0 6px">MCP 冷置（本窗口 0 次调用，考虑禁用以省启动开销）</div>'
-                  + _report_table([("MCP server", 0), ("上次使用", 1)],
-                                  [[s["name"], (s["last"] or "")[:10]] for s in cold]))
-    if not inner:
-        inner = '<div style="color:#1d9e75;padding:4px 0">无预警，一切正常。</div>'
-    return (f"<div {_REPORT_CARD}><div {_REPORT_TTL}>该改什么（预警 {n} 条）</div>{inner}"
-            '<div style="color:#9ca3af;font-size:12px;margin-top:10px">'
-            "零使用/冷置仅覆盖服务端收到过调用记录的工具；从未上报过的工具不在此列。</div></div>")
-
-
 def _report_bar_card(title, rows, color):
     return f"<div {_REPORT_CARD}><div {_REPORT_TTL}>{esc_html(title)}</div>{_report_rows(rows, color)}</div>"
 
@@ -896,7 +831,7 @@ def _team_overview_card(rep):
 
 
 def _report_body(rep, overview=False):
-    parts = [_report_warn_card(rep)]
+    parts = []
     if overview:
         parts.append(_team_overview_card(rep))
     parts += [
@@ -921,10 +856,9 @@ def _report_page(title, meta, body):
 
 def report_subject(rep, who=None):
     win = rep["window"]
-    n = len(rep["zero_skills"]) + len(rep["cold_mcp"])
     if who is None:
-        return f"[团队工具使用{win['kind']}] {win['subject']}（预警 {n} 条）"
-    return f"[工具使用{win['kind']}] {who} · {win['subject']}（预警 {n} 条）"
+        return f"[团队工具使用{win['kind']}] {win['subject']}"
+    return f"[工具使用{win['kind']}] {who} · {win['subject']}"
 
 
 def build_report_html(name, rep):
