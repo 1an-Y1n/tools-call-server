@@ -1069,18 +1069,50 @@ def admin_test_smtp(body: TestToBody, user: dict = Depends(require_admin)):
 # ---- scheduled report sending ----
 
 def get_schedule_config():
-    cfg = {"mode": "off", "day": 0, "time": "09:00", "last_period": "", "last_sent": ""}
+    cfg = {"daily_enabled": False, "daily_time": "09:00",
+           "weekly_enabled": False, "weekly_day": 0, "weekly_time": "09:00",
+           "last_daily": "", "last_weekly": "", "last_sent": ""}
     with closing(connect()) as conn:
+        rows = {k: v for k, v in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'report_%'")}
+        _migrate_schedule_settings(conn, rows)
         for k, v in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'report_%'"):
             key = k[len("report_"):]
-            if key == "day":
+            if key in ("daily_enabled", "weekly_enabled"):
+                cfg[key] = v == "1"
+            elif key == "weekly_day":
                 try:
                     cfg[key] = int(v)
                 except ValueError:
                     pass
-            else:
+            elif key in cfg:
                 cfg[key] = v
     return cfg
+
+
+def _migrate_schedule_settings(conn, rows):
+    """Old single-mode schedule (report_mode/day/time/last_period) -> the
+    split daily/weekly schedules. Runs once: the old keys are removed after
+    copying, so later ticks see no legacy rows and never re-migrate."""
+    mode = rows.get("report_mode")
+    if mode is None:
+        return
+    updates = {}
+    if mode == "daily":
+        updates = {"daily_enabled": "1", "daily_time": rows.get("report_time", "09:00")}
+    elif mode == "weekly":
+        updates = {"weekly_enabled": "1", "weekly_day": rows.get("report_day", "0"),
+                   "weekly_time": rows.get("report_time", "09:00")}
+    if mode in ("daily", "weekly") and rows.get("report_last_period"):
+        updates[f"last_{mode}"] = rows["report_last_period"]
+    for k, v in updates.items():
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"report_{k}", str(v)),
+        )
+    conn.execute("DELETE FROM settings WHERE key IN"
+                 " ('report_mode', 'report_day', 'report_time', 'report_last_period')")
+    conn.commit()
 
 
 def set_schedule_settings(updates):
@@ -1094,8 +1126,8 @@ def set_schedule_settings(updates):
         conn.commit()
 
 
-def _schedule_period(now, mode):
-    if mode == "weekly":
+def _schedule_period(now, kind):
+    if kind == "weekly":
         iso = now.isocalendar()
         return f"{iso[0]}-W{iso[1]}"
     return now.strftime("%Y-%m-%d")
@@ -1103,38 +1135,40 @@ def _schedule_period(now, mode):
 
 def _scheduler_tick():
     cfg = get_schedule_config()
-    if cfg["mode"] not in ("daily", "weekly"):
-        return
     now = datetime.now()
-    # weekly fires on the configured weekday or any later day of the same
-    # week, so a slot missed while the server was down is caught up instead
-    # of silently skipped; last_period still limits it to one send per week
-    if cfg["mode"] == "weekly" and now.weekday() < cfg["day"]:
-        return
-    try:
-        hh, mm = (cfg["time"] or "09:00").split(":")[:2]
-        sched = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
-    except (ValueError, AttributeError):
-        return
-    if now < sched:
-        return
-    period = _schedule_period(now, cfg["mode"])
-    if cfg["last_period"] == period:
-        return
-    outcome = _do_send_all(_report_window(cfg["mode"]))
-    set_schedule_settings({"last_period": period, "last_sent": now_iso()})
-    team = outcome.get("team", {})
-    log.info("scheduled report run (%s): sent=%s skipped=%s failed=%s team=%s recipients=%s",
-             cfg["mode"],
-             len([r for r in outcome["results"] if r["status"] == "sent"]),
-             len([r for r in outcome["results"] if r["status"] == "skipped"]),
-             len([r for r in outcome["results"] if r["status"] == "failed"]),
-             team.get("status"), len(team.get("recipients", [])))
-    if team.get("status") == "skipped":
-        log.warning("team report skipped: %s", team.get("reason"))
-    for r in team.get("recipients", []):
-        if r["status"] == "failed":
-            log.warning("team report to %s failed: %s", r["to"], r["reason"])
+    for kind in ("daily", "weekly"):
+        if not cfg[f"{kind}_enabled"]:
+            continue
+        # weekly fires on the configured weekday or any later day of the same
+        # week, so a slot missed while the server was down is caught up instead
+        # of silently skipped; last_<kind> still limits each schedule to one
+        # send per period
+        if kind == "weekly" and now.weekday() < cfg["weekly_day"]:
+            continue
+        try:
+            hh, mm = (cfg[f"{kind}_time"] or "09:00").split(":")[:2]
+            sched = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+        except (ValueError, AttributeError):
+            continue
+        if now < sched:
+            continue
+        period = _schedule_period(now, kind)
+        if cfg[f"last_{kind}"] == period:
+            continue
+        outcome = _do_send_all(_report_window(kind))
+        set_schedule_settings({f"last_{kind}": period, "last_sent": now_iso()})
+        team = outcome.get("team", {})
+        log.info("scheduled %s report run: sent=%s skipped=%s failed=%s team=%s recipients=%s",
+                 kind,
+                 len([r for r in outcome["results"] if r["status"] == "sent"]),
+                 len([r for r in outcome["results"] if r["status"] == "skipped"]),
+                 len([r for r in outcome["results"] if r["status"] == "failed"]),
+                 team.get("status"), len(team.get("recipients", [])))
+        if team.get("status") == "skipped":
+            log.warning("team report skipped: %s", team.get("reason"))
+        for r in team.get("recipients", []):
+            if r["status"] == "failed":
+                log.warning("team report to %s failed: %s", r["to"], r["reason"])
 
 
 def _report_scheduler():
@@ -1148,9 +1182,11 @@ def _report_scheduler():
 
 
 class ScheduleBody(BaseModel):
-    mode: str
-    day: Optional[int] = None
-    time: Optional[str] = None
+    daily_enabled: bool = False
+    daily_time: Optional[str] = None
+    weekly_enabled: bool = False
+    weekly_day: Optional[int] = None
+    weekly_time: Optional[str] = None
 
 
 @app.get("/admin/schedule")
@@ -1160,17 +1196,16 @@ def admin_get_schedule(user: dict = Depends(require_admin)):
 
 @app.post("/admin/schedule")
 def admin_set_schedule(body: ScheduleBody, user: dict = Depends(require_admin)):
-    if body.mode not in ("off", "daily", "weekly"):
-        raise HTTPException(status_code=400, detail="mode 必须是 off/daily/weekly")
-    updates = {"mode": body.mode}
-    if body.mode == "weekly":
-        if body.day is None or not 0 <= body.day <= 6:
-            raise HTTPException(status_code=400, detail="day 必须是 0-6（周一=0）")
-        updates["day"] = body.day
-    t = (body.time or "09:00").strip()
-    if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", t):
-        raise HTTPException(status_code=400, detail="时间格式需 HH:MM")
-    updates["time"] = t
+    updates = {"daily_enabled": "1" if body.daily_enabled else "0",
+               "weekly_enabled": "1" if body.weekly_enabled else "0"}
+    for kind in ("daily", "weekly"):
+        t = (getattr(body, f"{kind}_time") or "09:00").strip()
+        if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", t):
+            raise HTTPException(status_code=400, detail="时间格式需 HH:MM")
+        updates[f"{kind}_time"] = t
+    if body.weekly_day is None or not 0 <= body.weekly_day <= 6:
+        raise HTTPException(status_code=400, detail="day 必须是 0-6（周一=0）")
+    updates["weekly_day"] = body.weekly_day
     set_schedule_settings(updates)
     return {"ok": True, **get_schedule_config()}
 

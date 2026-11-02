@@ -134,14 +134,18 @@ plain SMTP on port 25 from internal hosts without a password — configure
 安全方式 = 无加密, 账号 = your company mailbox (shown as sender), 密码
 empty. Verify with 测试发送.
 
-**Scheduled sending**: the 定时发送 row in the same card (admin-only)
-enables automatic bulk reports — 每天 or 每周 (pick weekday) at a HH:MM
-time in the server's local timezone. A background thread checks every
-minute; each period (day / ISO week) is sent at most once, and a send
+**Scheduled sending**: the 定时发送 rows in the same card (admin-only)
+configure two **independent** schedules — 每天 (daily, yesterday's window)
+and 每周 (weekly, pick weekday, previous complete ISO week), each with its
+own time and enable flag, so both can run at once (stagger the times to
+avoid back-to-back mails). A background thread checks every minute; each
+period (day / ISO week) is sent at most once per schedule, and a send
 missed while the server was down is caught up on the next tick — for
 weekly mode on any later day of the same ISO week (a week missed without
 the server coming back up at all is skipped). Each run sends the per-user
-reports plus the team report. The card shows the last auto-send time.
+reports plus the team report. The card shows the last send per schedule.
+A pre-existing single-mode configuration (关闭/每天/每周) is migrated
+automatically on first read.
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
 front if the dashboard is reachable more widely.

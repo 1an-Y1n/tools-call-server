@@ -195,17 +195,17 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
       </div>
       <div class="toolbar">
         <span class="muted">定时发送</span>
-        <select id="sched-mode">
-          <option value="off">关闭</option>
-          <option value="daily">每天</option>
-          <option value="weekly">每周</option>
-        </select>
-        <select id="sched-day" style="display:none">
+        <label><input type="checkbox" id="sched-daily-on"> 每天（日报）</label>
+        <input id="sched-daily-time" type="time" value="09:00">
+        <label><input type="checkbox" id="sched-weekly-on"> 每周（周报）</label>
+        <select id="sched-weekly-day">
           <option value="0">周一</option><option value="1">周二</option><option value="2">周三</option>
           <option value="3">周四</option><option value="4">周五</option><option value="5">周六</option>
           <option value="6">周日</option>
         </select>
-        <input id="sched-time" type="time" value="09:00">
+        <input id="sched-weekly-time" type="time" value="09:00">
+      </div>
+      <div class="toolbar">
         <button class="primary" id="sched-save">保存定时</button>
         <span class="muted" id="sched-msg"></span>
         <span class="muted" id="sched-last"></span>
@@ -698,25 +698,27 @@ async function loadSchedule(){
   if (r.status === 401){ window.location.href = "/login"; return; }
   if (!r.ok) return;
   const c = await r.json();
-  document.getElementById("sched-mode").value = c.mode || "off";
-  document.getElementById("sched-day").value = String(c.day ?? 0);
-  document.getElementById("sched-time").value = c.time || "09:00";
-  document.getElementById("sched-day").style.display =
-    document.getElementById("sched-mode").value === "weekly" ? "" : "none";
-  document.getElementById("sched-last").textContent =
-    c.last_sent ? `上次自动发送: ${c.last_sent}` : "尚未自动发送";
+  document.getElementById("sched-daily-on").checked = !!c.daily_enabled;
+  document.getElementById("sched-daily-time").value = c.daily_time || "09:00";
+  document.getElementById("sched-weekly-on").checked = !!c.weekly_enabled;
+  document.getElementById("sched-weekly-day").value = String(c.weekly_day ?? 0);
+  document.getElementById("sched-weekly-time").value = c.weekly_time || "09:00";
+  const parts = [];
+  if (c.last_daily) parts.push(`上次日报: ${c.last_daily}`);
+  if (c.last_weekly) parts.push(`上次周报: ${c.last_weekly}`);
+  parts.push(c.last_sent ? `上次自动发送: ${c.last_sent}` : "尚未自动发送");
+  document.getElementById("sched-last").textContent = parts.join(" · ");
 }
-
-document.getElementById("sched-mode").addEventListener("change", () => {
-  document.getElementById("sched-day").style.display =
-    document.getElementById("sched-mode").value === "weekly" ? "" : "none";
-});
 
 document.getElementById("sched-save").onclick = async () => {
   const el = document.getElementById("sched-msg");
-  const body = { mode: document.getElementById("sched-mode").value,
-                 day: parseInt(document.getElementById("sched-day").value, 10),
-                 time: document.getElementById("sched-time").value || "09:00" };
+  const body = {
+    daily_enabled: document.getElementById("sched-daily-on").checked,
+    daily_time: document.getElementById("sched-daily-time").value || "09:00",
+    weekly_enabled: document.getElementById("sched-weekly-on").checked,
+    weekly_day: parseInt(document.getElementById("sched-weekly-day").value, 10),
+    weekly_time: document.getElementById("sched-weekly-time").value || "09:00",
+  };
   const r = await api("/admin/schedule", body);
   el.textContent = r.ok ? "已保存" : await errDetail(r);
   el.style.color = r.ok ? "#1d9e75" : "#d4537e";
