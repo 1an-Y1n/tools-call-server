@@ -55,9 +55,39 @@ Environment:
 
 - **admin** — sees all data; manages users in the dashboard's 用户管理 panel
   (add / reset password / change role / rename / delete)
-- **user** — sees only their own records, matched against the `user` field the
-  collector reports. Local usernames must equal that field (e.g. the employee
-  ID `A003688`), otherwise a user's view stays empty.
+- **user** — sees only their own records, matched against the **person key**
+  the collector reports (see [Who a record belongs to](#who-a-record-belongs-to)).
+  Local usernames must equal that key, otherwise a user's view stays empty.
+
+### Who a record belongs to
+
+Each record carries the collector's `user` field (the local account name) and,
+since collector v1.11.0, the Devin account it belongs to: `name` and `email`
+(read from `devin auth status`; both are null when the collector cannot resolve
+a Devin login, in which case the collector records nothing at all).
+
+The server derives one **person key** per record:
+
+```sql
+COALESCE(email, user)
+```
+
+- a record with a Devin email belongs to that email — one person, even if
+  several people share the same build account;
+- an older record (collected before the Devin identity, or by a collector
+  without a Devin login) keeps its local account name as the key.
+
+Every aggregation, filter and report uses that expression, so old and new
+records can live in the same table. A dashboard account named
+`ian_yin@sercomm.com` sees exactly the records of that Devin account; the
+dashboard shows the reported display name next to the key (`Ian Yin ·
+ian_yin@sercomm.com`).
+
+**Report recipients**: the mailbox configured in the 用户管理 panel wins; when
+an account has none, the server falls back to the Devin email the collector
+reported for that person — the address is already known, so it does not have to
+be entered twice. 改名 (rename) migrates both the `user` field and the email of
+the matching records, so the account stays linked to its data.
 
 **Default admin**: on the first start (empty users table) the server creates
 `SUPER_ADMIN` with password `SUPER_ADMIN` — no manual step, no sqlite3 CLI
@@ -93,7 +123,9 @@ user removes only the account — their historical event records are kept.
 Admins can configure each user's mailbox in the 用户管理 panel (邮箱 link),
 then send the user's stats as an email per user (发报告) or to everyone
 configured at once (全部发送报告 — users without data in the window are
-skipped). The report is email-client-safe HTML (no JS — renders in Outlook).
+skipped). An account with no configured mailbox falls back to the Devin email
+the collector reported for that person; accounts with neither are skipped with
+the reason 没有邮箱. The report is email-client-safe HTML (no JS — renders in Outlook).
 
 **Report content** (windowed, not all-history): a header line (window ·
 sessions · tool calls), KPI cards, then
@@ -165,6 +197,9 @@ attempt retries.
 ### `GET /v1/stats`
 
 Aggregated counts: total records, per-tool counts, per-skill counts, per-day counts.
+The user dimension uses the [person key](#who-a-record-belongs-to)
+(`COALESCE(email, user)`), and the payload adds `person_names` — a map from
+person key to the display name the collector reported.
 Requires login; admins get all data, regular users get only their own records
 (the dashboard's auto-refresh redirects to `/login` on a 401).
 

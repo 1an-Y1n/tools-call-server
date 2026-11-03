@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS events (
     timestamp TEXT,
     client_id TEXT,
     user TEXT,
+    name TEXT,
+    email TEXT,
     session_id TEXT,
     prompt_id TEXT,
     project_dir TEXT,
@@ -186,11 +188,16 @@ def migrate(conn):
         conn.execute("ALTER TABLE events ADD COLUMN client_id TEXT")
     if "user" not in existing:
         conn.execute("ALTER TABLE events ADD COLUMN user TEXT")
+    if "name" not in existing:
+        conn.execute("ALTER TABLE events ADD COLUMN name TEXT")
+    if "email" not in existing:
+        conn.execute("ALTER TABLE events ADD COLUMN email TEXT")
     ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
     if "email" not in ucols:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_client ON events(client_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_user ON events(user)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_email ON events(email)")
 
 
 def connect():
@@ -208,6 +215,13 @@ def now_iso():
 
 
 INGEST_MAX_BYTES = 10_000_000
+
+# The person a record belongs to. The collector reports the Devin account
+# (name + email) whenever it can resolve it; records collected before that
+# (or from a collector without a Devin login) only carry the local account
+# name. Grouping by this expression keeps every aggregation consistent and
+# lets old and new data live in the same table.
+PERSON_SQL = "COALESCE(email, user)"
 
 
 def row_from_record(record, raw):
@@ -231,6 +245,8 @@ def row_from_record(record, raw):
         _s(record.get("timestamp")),
         _s(record.get("client_id")),
         _s(record.get("user")),
+        _s(record.get("name")),
+        _s(record.get("email")),
         _s(record.get("session_id")),
         _s(record.get("prompt_id")),
         _s(record.get("project_dir")),
@@ -269,9 +285,9 @@ def do_ingest(body):
         if rows:
             conn.executemany(
                 "INSERT INTO events (received_at, schema_version, type, timestamp, client_id,"
-                " user, session_id, prompt_id, project_dir, host, tool_name, status, input_keys, skill,"
+                " user, name, email, session_id, prompt_id, project_dir, host, tool_name, status, input_keys, skill,"
                 " skill_command, collector_name, collector_version, raw)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
         if rejects:
@@ -371,6 +387,9 @@ def _rename_user(old_name, new_name):
         with closing(connect()) as conn:
             conn.execute("UPDATE users SET username = ? WHERE username = ?", (new_name, old_name))
             conn.execute("UPDATE events SET user = ? WHERE user = ?", (new_name, old_name))
+            # the person key is the email when the collector reported one, so a
+            # rename has to carry those records over as well
+            conn.execute("UPDATE events SET email = ? WHERE email = ?", (new_name, old_name))
             conn.commit()
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="用户名已存在")
@@ -466,7 +485,15 @@ def admin_list_users(user: dict = Depends(require_admin)):
         rows = conn.execute(
             "SELECT username, role, email, created_at FROM users ORDER BY username"
         ).fetchall()
-    return {"users": [dict(r) for r in rows]}
+        users = []
+        for r in rows:
+            item = dict(r)
+            # the Devin account email the collector reported for this person —
+            # shown as a hint, and used as the report recipient when the admin
+            # has not configured a mailbox
+            item["collected_email"] = _collected_email(conn, r["username"])
+            users.append(item)
+    return {"users": users}
 
 
 @app.post("/admin/users")
@@ -695,7 +722,7 @@ def compute_report(user, win):
     user=None aggregates the whole team; otherwise stats are restricted to
     that user, matching the collector's `user` field.
     """
-    flt = " AND user = ?" if user else ""
+    flt = f" AND {PERSON_SQL} = ?" if user else ""
     args = [user] if user else []
     w = " WHERE timestamp >= ? AND timestamp < ?" + flt
     wargs = [win["start"], win["end"]] + args
@@ -737,27 +764,36 @@ def compute_report(user, win):
         per_user, idle_accounts = [], []
         if team:
             rows = conn.execute(
-                "SELECT user, COUNT(DISTINCT session_id) AS sessions,"
+                f"SELECT {PERSON_SQL} AS person, COUNT(DISTINCT session_id) AS sessions,"
                 " SUM(CASE WHEN type = 'tool_call' THEN 1 ELSE 0 END) AS tool_calls,"
                 " SUM(CASE WHEN type = 'skill_invoke' THEN 1 ELSE 0 END) AS skill_calls"
-                f" FROM events{w} AND user IS NOT NULL GROUP BY user"
+                f" FROM events{w} AND ({PERSON_SQL}) IS NOT NULL GROUP BY person"
                 " ORDER BY tool_calls DESC, sessions DESC", wargs,
             ).fetchall()
             tops = {}
             for r in conn.execute(
-                "SELECT user, skill, COUNT(*) AS n FROM events"
-                f"{w} AND user IS NOT NULL AND type = 'skill_invoke' AND skill IS NOT NULL"
-                " GROUP BY user, skill", wargs,
+                f"SELECT {PERSON_SQL} AS person, skill, COUNT(*) AS n FROM events"
+                f"{w} AND ({PERSON_SQL}) IS NOT NULL AND type = 'skill_invoke' AND skill IS NOT NULL"
+                " GROUP BY person, skill", wargs,
             ):
-                tops.setdefault(r["user"], []).append((r["skill"], r["n"]))
-            per_user = [{"name": r["user"], "sessions": r["sessions"] or 0,
+                tops.setdefault(r["person"], []).append((r["skill"], r["n"]))
+            # display name per person, for the report table
+            display = {}
+            for r in conn.execute(
+                f"SELECT {PERSON_SQL} AS person, name, COUNT(*) AS n FROM events"
+                f"{w} AND name IS NOT NULL GROUP BY person, name ORDER BY person, n DESC", wargs,
+            ):
+                display.setdefault(r["person"], r["name"])
+            per_user = [{"name": r["person"], "display": display.get(r["person"]),
+                         "email": _collected_email(conn, r["person"]),
+                         "sessions": r["sessions"] or 0,
                          "tool_calls": r["tool_calls"] or 0, "skill_calls": r["skill_calls"] or 0,
-                         "top_skills": sorted(tops.get(r["user"], []), key=lambda x: -x[1])[:3]}
+                         "top_skills": sorted(tops.get(r["person"], []), key=lambda x: -x[1])[:3]}
                         for r in rows]
             # every known account, so accounts without a configured mailbox
             # (often the ones a manager most needs to see) are listed too
             accounts = conn.execute("SELECT username FROM users ORDER BY username").fetchall()
-            active = {r["user"] for r in rows}
+            active = {r["person"] for r in rows}
             idle_accounts = [a["username"] for a in accounts if a["username"] not in active]
 
     def _sorted(d):
@@ -819,8 +855,19 @@ def _report_bar_card(title, rows, color):
     return f"<div {_REPORT_CARD}><div {_REPORT_TTL}>{esc_html(title)}</div>{_report_rows(rows, color)}</div>"
 
 
+def _person_label(u):
+    """Display name + email when the collector reported a Devin account."""
+    display = u.get("display") or ""
+    email = u.get("email") or ""
+    if display and email:
+        return f"{display} ({email})"
+    if display:
+        return f"{display} ({u['name']})"
+    return u["name"]
+
+
 def _team_overview_card(rep):
-    rows = [[u["name"], u["sessions"], u["tool_calls"], u["skill_calls"],
+    rows = [[_person_label(u), u["sessions"], u["tool_calls"], u["skill_calls"],
              "，".join(f"{s} {n}" for s, n in u["top_skills"]) or "-"] for u in rep["per_user"]]
     body = _report_table(
         [("用户", 0), ("会话", 1), ("工具调用", 1), ("Skill 调用", 1), ("主要 Skill", 0)], rows)
@@ -927,10 +974,15 @@ def admin_send_report(username: str, user: dict = Depends(require_admin)):
     row = get_user(username)
     if not row:
         raise HTTPException(status_code=404, detail="用户不存在")
-    if not row["email"]:
-        raise HTTPException(status_code=400, detail="该用户未配置邮箱")
+    recipient = row["email"]
+    if not recipient:
+        # no mailbox configured: use the Devin account email the collector saw
+        with closing(connect()) as conn:
+            recipient = _collected_email(conn, username)
+    if not recipient:
+        raise HTTPException(status_code=400, detail="该用户未配置邮箱，采集数据中也没有邮箱")
     try:
-        status, reason = _send_user_report(username, row["email"], _report_window("manual"))
+        status, reason = _send_user_report(username, recipient, _report_window("manual"))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -984,13 +1036,19 @@ def _do_send_all(win):
     # Shared by the manual bulk endpoint and the scheduler
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
-        users = conn.execute(
-            "SELECT username, email FROM users WHERE email IS NOT NULL AND email != ''"
-        ).fetchall()
+        users = conn.execute("SELECT username, email FROM users").fetchall()
     results = []
     for r in users:
+        recipient = r["email"]
+        if not recipient:
+            # no mailbox configured: use the Devin account email the collector saw
+            with closing(connect()) as conn:
+                recipient = _collected_email(conn, r["username"])
+        if not recipient:
+            results.append({"user": r["username"], "status": "skipped", "reason": "没有邮箱"})
+            continue
         try:
-            status, reason = _send_user_report(r["username"], r["email"], win)
+            status, reason = _send_user_report(r["username"], recipient, win)
             results.append({"user": r["username"], "status": status, "reason": reason})
         except RuntimeError as exc:
             results.append({"user": r["username"], "status": "failed", "reason": str(exc)})
@@ -1216,10 +1274,38 @@ def skill_label(skill, command):
     return skill or (f"<{command}>" if command else "<unidentified>")
 
 
+def _person_names(rows):
+    """Map person key -> display name (the most frequently reported one)."""
+    names = {}
+    for r in rows:
+        if r["person"] not in names:  # rows are ordered by count desc
+            names[r["person"]] = r["name"]
+    return names
+
+
+def _collected_email(conn, person):
+    """The Devin account email the collector reported for this person.
+
+    Used as the fallback recipient for the email reports when the admin has
+    not configured a mailbox for the account: the collector already knows the
+    person's address, so there is no need to ask for it twice.
+    """
+    if not person:
+        return None
+    row = conn.execute(
+        f"SELECT email FROM events WHERE email IS NOT NULL AND {PERSON_SQL} = ?"
+        " ORDER BY timestamp DESC LIMIT 1",
+        (person,),
+    ).fetchone()
+    # positional access: the caller may or may not have set a Row factory
+    return row[0] if row and row[0] else None
+
+
 def compute_stats(user=None):
-    flt = " AND user = ?" if user else ""
+    flt = f" AND {PERSON_SQL} = ?" if user else ""
     args = [user] if user else []
-    where_u = " WHERE user = ?" if user else ""
+    where_u = f" WHERE {PERSON_SQL} = ?" if user else ""
+    person_not_null = f" AND ({PERSON_SQL}) IS NOT NULL"
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
         total = conn.execute(f"SELECT COUNT(*) AS n FROM events{where_u}", args).fetchone()["n"]
@@ -1239,7 +1325,14 @@ def compute_stats(user=None):
             args,
         ).fetchall()
         by_user = conn.execute(
-            f"SELECT user, COUNT(*) AS n FROM events{where_u} GROUP BY user ORDER BY n DESC",
+            f"SELECT {PERSON_SQL} AS person, COUNT(*) AS n FROM events{where_u}"
+            " GROUP BY person ORDER BY n DESC",
+            args,
+        ).fetchall()
+        # display name per person (the Devin account name the collector reported)
+        person_name_rows = conn.execute(
+            f"SELECT {PERSON_SQL} AS person, name, COUNT(*) AS n FROM events"
+            f" WHERE name IS NOT NULL{flt} GROUP BY person, name ORDER BY person, n DESC",
             args,
         ).fetchall()
         tool_day_rows = conn.execute(
@@ -1250,15 +1343,16 @@ def compute_stats(user=None):
             args,
         ).fetchall()
         user_tool_rows = conn.execute(
-            "SELECT user, CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
+            f"SELECT {PERSON_SQL} AS person, CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
             " COUNT(*) AS n FROM events"
-            " WHERE type IN ('tool_call', 'skill_invoke') AND user IS NOT NULL"
-            f" AND (type = 'skill_invoke' OR tool_name IS NOT NULL){flt} GROUP BY user, tool",
+            " WHERE type IN ('tool_call', 'skill_invoke')"
+            f"{person_not_null} AND (type = 'skill_invoke' OR tool_name IS NOT NULL){flt}"
+            " GROUP BY person, tool",
             args,
         ).fetchall()
         user_skill_rows = conn.execute(
-            "SELECT user, skill, skill_command, COUNT(*) AS n FROM events"
-            f" WHERE type = 'skill_invoke' AND user IS NOT NULL{flt} GROUP BY user, skill, skill_command",
+            f"SELECT {PERSON_SQL} AS person, skill, skill_command, COUNT(*) AS n FROM events"
+            f" WHERE type = 'skill_invoke'{person_not_null}{flt} GROUP BY person, skill, skill_command",
             args,
         ).fetchall()
         by_day = conn.execute(
@@ -1272,17 +1366,18 @@ def compute_stats(user=None):
             args,
         ).fetchall()
         user_tool_day_rows = conn.execute(
-            "SELECT user, CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
+            f"SELECT {PERSON_SQL} AS person, CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
             " substr(timestamp, 1, 10) AS day, COUNT(*) AS n FROM events"
             " WHERE type IN ('tool_call', 'skill_invoke')"
-            " AND (type = 'skill_invoke' OR tool_name IS NOT NULL) AND user IS NOT NULL"
-            f"{flt} GROUP BY user, tool, day",
+            f"{person_not_null} AND (type = 'skill_invoke' OR tool_name IS NOT NULL){flt}"
+            " GROUP BY person, tool, day",
             args,
         ).fetchall()
         user_skill_day_rows = conn.execute(
-            "SELECT user, skill, skill_command, substr(timestamp, 1, 10) AS day, COUNT(*) AS n FROM events"
-            " WHERE type = 'skill_invoke' AND user IS NOT NULL"
-            f"{flt} GROUP BY user, skill, skill_command, day",
+            f"SELECT {PERSON_SQL} AS person, skill, skill_command, substr(timestamp, 1, 10) AS day,"
+            " COUNT(*) AS n FROM events"
+            f" WHERE type = 'skill_invoke'{person_not_null}{flt}"
+            " GROUP BY person, skill, skill_command, day",
             args,
         ).fetchall()
         last = conn.execute(f"SELECT MAX(timestamp) AS ts FROM events{where_u}", args).fetchone()["ts"]
@@ -1297,22 +1392,22 @@ def compute_stats(user=None):
         for r in tool_day_rows:
             tool_days.setdefault(r["tool"], {})[r["day"]] = r["n"]
         for r in user_tool_rows:
-            user_tools.setdefault(r["user"], {})[r["tool"]] = r["n"]
+            user_tools.setdefault(r["person"], {})[r["tool"]] = r["n"]
         for r in user_skill_rows:
             # same label can come from several skill_command rows — sum them,
             # a plain assignment would keep only the last row's count
             label = skill_label(r["skill"], r["skill_command"])
-            per_user_skills = user_skills.setdefault(r["user"], {})
+            per_user_skills = user_skills.setdefault(r["person"], {})
             per_user_skills[label] = per_user_skills.get(label, 0) + r["n"]
         for r in skill_day_rows:
             label = skill_label(r["skill"], r["skill_command"])
             per_label_days = skill_days.setdefault(label, {})
             per_label_days[r["day"]] = per_label_days.get(r["day"], 0) + r["n"]
         for r in user_tool_day_rows:
-            user_tool_days.setdefault(r["user"], {}).setdefault(r["tool"], {})[r["day"]] = r["n"]
+            user_tool_days.setdefault(r["person"], {}).setdefault(r["tool"], {})[r["day"]] = r["n"]
         for r in user_skill_day_rows:
             label = skill_label(r["skill"], r["skill_command"])
-            per_label_days = user_skill_days.setdefault(r["user"], {}).setdefault(label, {})
+            per_label_days = user_skill_days.setdefault(r["person"], {}).setdefault(label, {})
             per_label_days[r["day"]] = per_label_days.get(r["day"], 0) + r["n"]
 
     def _valid_day(day):
@@ -1321,7 +1416,8 @@ def compute_stats(user=None):
     return {
         "total": total,
         "by_client": {(r["client_id"] or "<unknown>"): r["n"] for r in by_client},
-        "by_user": {(r["user"] or "<unknown>"): r["n"] for r in by_user},
+        "by_user": {(r["person"] or "<unknown>"): r["n"] for r in by_user},
+        "person_names": _person_names(person_name_rows),
         "by_tool": {r["tool"]: r["n"] for r in by_tool},
         "by_skill": by_skill,
         "by_day": {r["day"]: r["n"] for r in by_day if _valid_day(r["day"])},

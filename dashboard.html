@@ -213,7 +213,7 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
     </div>
     <div class="card" id="admin-card" style="display:none"><div class="ttl">用户管理</div>
       <div class="toolbar">
-        <input id="nu-name" placeholder="用户名（需与数据中的 user 字段一致）" size="30">
+        <input id="nu-name" placeholder="用户名（需与数据中的人一致：Devin 邮箱或本机账号名）" size="42">
         <span class="pwwrap"><input id="nu-pass" type="password" placeholder="初始密码（至少 8 位）" size="20" autocomplete="new-password"><button type="button" class="pweye" id="eye-nu-pass" tabindex="-1"></button></span>
         <select id="nu-role"><option value="user">普通用户</option><option value="admin">管理员</option></select>
         <button class="primary" id="nu-add">添加用户</button>
@@ -348,6 +348,15 @@ function knownUsers(d){
   return Object.entries(d.by_user || {}).filter(u => u[0] !== "<unknown>").sort((a,b) => b[1] - a[1]);
 }
 
+// The person key is the Devin account email when the collector reported one,
+// otherwise the local account name. Show the display name next to it.
+function userLabel(d, key){
+  const names = d.person_names || {};
+  const name = names[key];
+  if (!name) return key;
+  return key.includes("@") ? `${name} · ${key}` : `${name} · ${key}`;
+}
+
 function lastNDays(n){
   const all = Object.keys(DATA.by_day || {}).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
   const anchor = all.length ? all[all.length - 1] : new Date().toISOString().slice(0, 10);
@@ -384,7 +393,7 @@ function populateUserFilter(id, d){
   const users = knownUsers(d);
   const cur = sel.value || "__all__";
   sel.innerHTML = '<option value="__all__">全部用户</option>' +
-    users.map(([u]) => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
+    users.map(([u]) => `<option value="${esc(u)}">${esc(userLabel(d, u))}</option>`).join("");
   sel.value = users.some(([u]) => u === cur) ? cur : "__all__";
 }
 
@@ -453,11 +462,11 @@ function renderUserTab(d){
     const topSkills = Object.entries(skillTotals).sort((a,b) => b[1] - a[1]).slice(0, 8).map(p => p[0]);
     tOpt = optStack(shown, topTools.map(t => ({name:t, data:shown.map(u => (userTools[u] || {})[t] || 0)})));
     sOpt = optStack(shown, topSkills.map(s => ({name:s, data:shown.map(u => (userSkills[u] || {})[s] || 0)})));
-    tRows = users.map(([u, total]) => ({name:u, n:total,
+    tRows = users.map(([u, total]) => ({name:userLabel(d, u), n:total,
       detail:Object.entries(userTools[u] || {}).sort((a,b) => b[1] - a[1]).map(([t, n]) => `${t} ${n}`).join("，")}));
     sRows = users.map(([u]) => {
       const det = Object.entries(userSkills[u] || {}).sort((a,b) => b[1] - a[1]);
-      return {name:u, n:det.reduce((s, x) => s + x[1], 0), detail:det.map(([s, n]) => `${s} ${n}`).join("，")};
+      return {name:userLabel(d, u), n:det.reduce((s, x) => s + x[1], 0), detail:det.map(([s, n]) => `${s} ${n}`).join("，")};
     });
   } else {
     hint.textContent = "";
@@ -466,8 +475,9 @@ function renderUserTab(d){
     tOpt = optBarH(tools, PAL[0]);
     sOpt = optBarH(skills, PAL[1]);
     const uTotal = (users.find(u => u[0] === selectedUser) || [0, 0])[1];
-    tRows = [{name:selectedUser, n:uTotal, detail:tools.map(t => `${t.name} ${t.n}`).join("，")}];
-    sRows = [{name:selectedUser, n:skills.reduce((s, x) => s + x.n, 0),
+    const uLabel = userLabel(d, selectedUser);
+    tRows = [{name:uLabel, n:uTotal, detail:tools.map(t => `${t.name} ${t.n}`).join("，")}];
+    sRows = [{name:uLabel, n:skills.reduce((s, x) => s + x.n, 0),
       detail:skills.map(s => `${s.name} ${s.n}`).join("，")}];
   }
   draw("c-user-tools", tOpt);
@@ -486,7 +496,7 @@ function populateUserSelect(d){
   const users = knownUsers(d);
   const cur = sel.value || "__all__";
   sel.innerHTML = '<option value="__all__">全部用户</option>' +
-    users.map(([u]) => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
+    users.map(([u]) => `<option value="${esc(u)}">${esc(userLabel(d, u))}</option>`).join("");
   sel.value = users.some(([u]) => u === cur) ? cur : "__all__";
   selectedUser = sel.value;
 }
@@ -550,7 +560,8 @@ async function loadUsers(){
       if (!isSelf) ops.push(`<a href="#" class="op" data-op="del" data-u="${esc(u.username)}" style="color:#d4537e;text-decoration:none">删除</a>`);
       return `<tr><td>${esc(u.username)}${isSelf ? ' <span class="pill">我</span>' : ""}${pen}</td>` +
         `<td>${u.role === "admin" ? "管理员" : "普通用户"}</td>` +
-        `<td class="muted">${esc(u.email || "-")}</td>` +
+        `<td class="muted">${esc(u.email || "-")}${u.email || !u.collected_email ? "" :
+          `<div style="color:#9ca3af;font-size:11px">采集到的 Devin 邮箱: ${esc(u.collected_email)}</div>`}</td>` +
         `<td class="muted">${esc(u.created_at)}</td>` +
         `<td>${ops.map(o => `<span class="opw">${o}</span>`).join("")}</td></tr>`;
     }).join("") + "</tbody></table>";
