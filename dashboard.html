@@ -518,7 +518,7 @@ dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
       <div class="toolbar">
         <span class="pwwrap"><input id="pw-old" type="password" placeholder="旧密码" size="16" autocomplete="current-password"><button type="button" class="pweye" id="eye-pw-old" tabindex="-1"></button></span>
         <span class="pwwrap"><input id="pw-new" type="password" placeholder="新密码（至少 8 位）" size="20" autocomplete="new-password"><button type="button" class="pweye" id="eye-pw-new" tabindex="-1"></button></span>
-        <button class="primary" id="pw-save">保存</button>
+        <button class="dsh-btn dsh-btn-primary dsh-btn-sm" id="pw-save">保存</button>
         <span class="muted" id="pw-msg"></span>
       </div>
     </div>
@@ -542,9 +542,8 @@ dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
       <div class="toolbar">
         <span class="muted">测试收件</span>
         <input id="smtp-test-to" size="24" placeholder="test@sercomm.com">
-        <button id="smtp-test">测试发送</button>
-        <button class="primary" id="smtp-save">保存设置</button>
-        <span class="muted" id="smtp-msg"></span>
+        <button id="smtp-test" class="dsh-btn dsh-btn-outline"
+          title="保存 SMTP 配置并发送一封测试邮件（不会改动定时设置）">测试发送</button>
       </div>
       <div class="toolbar">
         <span class="muted">定时发送</span>
@@ -559,9 +558,11 @@ dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
         <input id="sched-weekly-time" type="time" value="09:00">
       </div>
       <div class="toolbar">
-        <button class="primary" id="sched-save">保存定时</button>
-        <span class="muted" id="sched-msg"></span>
         <span class="muted" id="sched-last"></span>
+      </div>
+      <div class="toolbar">
+        <button class="dsh-btn dsh-btn-primary" id="smtp-save">保存设置</button>
+        <span class="muted" id="smtp-msg"></span>
       </div>
     </div>
   </div>
@@ -1786,15 +1787,36 @@ document.getElementById("cf-confirm").addEventListener("click", async () => {
 
 document.getElementById("pw-save").onclick = async () => {
   const el = document.getElementById("pw-msg");
-  const r = await api("/me/password", { old_password: document.getElementById("pw-old").value,
-                                       new_password: document.getElementById("pw-new").value });
-  el.textContent = r.ok ? "密码已修改" : await errDetail(r);
-  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
-  if (r.ok){
+  const btn = document.getElementById("pw-save");
+  btn.disabled = true;
+  el.textContent = "保存中…";
+  el.style.color = "#9ca3af";
+  try {
+    const r = await api("/me/password", { old_password: document.getElementById("pw-old").value,
+                                           new_password: document.getElementById("pw-new").value });
+    if (!r.ok){
+      el.textContent = await errDetail(r);
+      el.style.color = "#d4537e";
+      return;
+    }
+    el.textContent = "密码已修改";
+    el.style.color = "#1d9e75";
+    toast("密码已修改");
     document.getElementById("pw-old").value = "";
     document.getElementById("pw-new").value = "";
+  } catch (e){
+    el.textContent = e.message || "修改失败";
+    el.style.color = "#d4537e";
+  } finally {
+    btn.disabled = false;
   }
 };
+
+// The SMTP config as last read from the server. Saving only the fields the
+// admin actually touched keeps a merged save from writing stale form values
+// over a config that changed elsewhere (a second tab, the API, ...).
+let smtpLoaded = null;
+const normSmtp = v => (v === null || v === undefined) ? "" : String(v);
 
 async function loadSmtp(){
   const r = await fetch("/admin/smtp");
@@ -1805,39 +1827,112 @@ async function loadSmtp(){
   document.getElementById("smtp-port").value = c.port || "";
   document.getElementById("smtp-user").value = c.user || "";
   document.getElementById("smtp-security").value = c.security || "starttls";
+  // remember what the server holds, so a save can tell "changed" from "stale"
+  smtpLoaded = {
+    host: c.host || "",
+    port: normSmtp(c.port),
+    user: c.user || "",
+    security: c.security || "starttls",
+  };
+}
+
+// The SMTP config and the send schedule are one user-facing settings card, so
+// they are saved together by a single button. Both live in the same `settings`
+// table under different key prefixes (smtp_* / report_*), so this stays a
+// front-end concern — the endpoints are untouched.
+function smtpPayload(){
+  // the password is write-only: leaving the key out keeps the stored one
+  return {
+    host: document.getElementById("smtp-host").value.trim(),
+    port: parseInt(document.getElementById("smtp-port").value, 10) || null,
+    user: document.getElementById("smtp-user").value.trim(),
+    security: document.getElementById("smtp-security").value,
+  };
+}
+function schedulePayload(){
+  return {
+    daily_enabled: document.getElementById("sched-daily-on").checked,
+    daily_time: document.getElementById("sched-daily-time").value || "09:00",
+    weekly_enabled: document.getElementById("sched-weekly-on").checked,
+    weekly_day: parseInt(document.getElementById("sched-weekly-day").value, 10),
+    weekly_time: document.getElementById("sched-weekly-time").value || "09:00",
+  };
+}
+// The SMTP config as last read from the server. Saving only the fields the
+// admin actually touched keeps a merged save from writing stale form values
+// over a config that changed elsewhere (a second tab, the API, ...).
+function smtpChanged(){
+  if (!smtpLoaded) return true;
+  const s = smtpPayload();
+  return s.host !== smtpLoaded.host
+      || normSmtp(s.port) !== smtpLoaded.port
+      || s.user !== smtpLoaded.user
+      || s.security !== smtpLoaded.security;
+}
+function mailMsg(text, ok){
+  const el = document.getElementById("smtp-msg");
+  el.textContent = text || "";
+  el.style.color = ok ? "#1d9e75" : "#d4537e";
 }
 
 document.getElementById("smtp-save").onclick = async () => {
-  const el = document.getElementById("smtp-msg");
-  const body = {
-    host: document.getElementById("smtp-host").value.trim(),
-    port: parseInt(document.getElementById("smtp-port").value, 10) || null,
-    user: document.getElementById("smtp-user").value.trim(),
-    security: document.getElementById("smtp-security").value,
-  };
-  const r = await api("/admin/smtp", body);
-  el.textContent = r.ok ? "已保存" : await errDetail(r);
-  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
-  if (r.ok) loadSmtp();
+  const btn = document.getElementById("smtp-save");
+  const smtp = smtpPayload();
+  const sched = schedulePayload();
+  btn.disabled = true;
+  mailMsg("保存中…", true);
+  try {
+    if (smtpChanged()){
+      const r1 = await api("/admin/smtp", smtp);
+      if (!r1.ok){
+        mailMsg(await errDetail(r1), false);
+        return;
+      }
+    }
+    const r2 = await api("/admin/schedule", sched);
+    if (!r2.ok){
+      // the SMTP half did land — say so instead of implying nothing was saved
+      mailMsg("SMTP 配置已保存，但定时设置未保存：" + await errDetail(r2), false);
+      return;
+    }
+    loadSmtp();
+    loadSchedule();
+    // a schedule without a mail server can only fail at send time — flag it
+    if ((sched.daily_enabled || sched.weekly_enabled) && !smtp.host){
+      mailMsg("已保存，但未填写 SMTP 服务器地址，定时发送会失败", false);
+      toast("已保存，但未填写 SMTP 服务器地址，定时发送会失败", "error");
+      return;
+    }
+    mailMsg("已保存", true);
+    toast("邮件发送设置已保存");
+  } catch (e){
+    mailMsg(e.message || "保存失败", false);
+  } finally {
+    btn.disabled = false;
+  }
 };
 
 document.getElementById("smtp-test").onclick = async () => {
-  const el = document.getElementById("smtp-msg");
+  const btn = document.getElementById("smtp-test");
   const to = document.getElementById("smtp-test-to").value.trim();
-  if (!to){ el.textContent = "请填写测试收件邮箱"; el.style.color = "#d4537e"; return; }
-  el.textContent = "保存并发送中…"; el.style.color = "#9ca3af";
-  const body = {
-    host: document.getElementById("smtp-host").value.trim(),
-    port: parseInt(document.getElementById("smtp-port").value, 10) || null,
-    user: document.getElementById("smtp-user").value.trim(),
-    security: document.getElementById("smtp-security").value,
-  };
-  const sr = await api("/admin/smtp", body);
-  if (!sr.ok){ el.textContent = await errDetail(sr); el.style.color = "#d4537e"; return; }
-  const r = await api("/admin/smtp/test", { to });
-  el.textContent = r.ok ? "测试邮件已发送" : await errDetail(r);
-  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
-  if (r.ok) loadSmtp();
+  if (!to){ mailMsg("请填写测试收件邮箱", false); return; }
+  btn.disabled = true;
+  mailMsg("保存并发送中…", true);
+  try {
+    // the test must run against the values just typed in, so it saves the
+    // SMTP half first; the schedule is left untouched
+    const sr = await api("/admin/smtp", smtpPayload());
+    if (!sr.ok){ mailMsg(await errDetail(sr), false); return; }
+    const r = await api("/admin/smtp/test", { to });
+    if (!r.ok){ mailMsg(await errDetail(r), false); return; }
+    mailMsg("测试邮件已发送", true);
+    toast("测试邮件已发送至 " + to);
+    loadSmtp();
+  } catch (e){
+    mailMsg(e.message || "发送失败", false);
+  } finally {
+    btn.disabled = false;
+  }
 };
 
 async function loadSchedule(){
@@ -1856,21 +1951,6 @@ async function loadSchedule(){
   parts.push(c.last_sent ? `上次自动发送: ${c.last_sent}` : "尚未自动发送");
   document.getElementById("sched-last").textContent = parts.join(" · ");
 }
-
-document.getElementById("sched-save").onclick = async () => {
-  const el = document.getElementById("sched-msg");
-  const body = {
-    daily_enabled: document.getElementById("sched-daily-on").checked,
-    daily_time: document.getElementById("sched-daily-time").value || "09:00",
-    weekly_enabled: document.getElementById("sched-weekly-on").checked,
-    weekly_day: parseInt(document.getElementById("sched-weekly-day").value, 10),
-    weekly_time: document.getElementById("sched-weekly-time").value || "09:00",
-  };
-  const r = await api("/admin/schedule", body);
-  el.textContent = r.ok ? "已保存" : await errDetail(r);
-  el.style.color = r.ok ? "#1d9e75" : "#d4537e";
-  if (r.ok) loadSchedule();
-};
 
 if (USER && USER.name){
   document.getElementById("user-box").innerHTML =

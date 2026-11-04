@@ -189,23 +189,38 @@ the tenant disables it, ask IT to enable SMTP AUTH, or use an app password
 when MFA is on. Without any sender configured, the send endpoints return a
 clear error.
 
+**One save button for the whole card** — the SMTP config and the send
+schedule are one user-facing card, so a single 保存设置 button writes both
+(`POST /admin/smtp` + `POST /admin/schedule`). The two settings live in the
+same `settings` table under different key prefixes (`smtp_*` / `report_*`),
+so this is purely a front-end change — the endpoints are untouched.
+
+Only the SMTP fields the admin actually edited are submitted, so saving the
+schedule never writes stale form values over a config that changed
+elsewhere (a second browser tab, the API). The stored SMTP password is
+write-only and is never sent back, so saving the schedule cannot clear it.
+If a schedule is enabled while the server address is empty, the save
+succeeds but warns that the scheduled send will fail. 测试发送 saves the SMTP
+half only (it must test the values just typed in) and leaves the schedule
+untouched.
+
 **Internal relay deployment** (no auth): the company SMTP relay accepts
 plain SMTP on port 25 from internal hosts without a password — configure
 服务器 = relay address, 端口 = 25 (or leave empty, it falls back to 25),
 安全方式 = 无加密, 账号 = your company mailbox (shown as sender), 密码
 empty. Verify with 测试发送.
 
-**Scheduled sending**: the 定时发送 rows in the same card (admin-only)
-configure two **independent** schedules — 每天 (daily, yesterday's window)
-and 每周 (weekly, pick weekday, previous complete ISO week), each with its
-own time and enable flag, so both can run at once (stagger the times to
-avoid back-to-back mails). A background thread checks every minute; each
-period (day / ISO week) is sent at most once per schedule, and a send
-missed while the server was down is caught up on the next tick — for
-weekly mode on any later day of the same ISO week (a week missed without
-the server coming back up at all is skipped). Each run sends the per-user
-reports plus the team report. The card shows the last send per schedule.
-A pre-existing single-mode configuration (关闭/每天/每周) is migrated
+**Scheduled sending**: the 定时发送 rows in the same card (admin-only,
+saved by the same 保存设置 button) configure two **independent** schedules —
+每天 (daily, yesterday's window) and 每周 (weekly, pick weekday, previous
+complete ISO week), each with its own time and enable flag, so both can run
+at once (stagger the times to avoid back-to-back mails). A background thread
+checks every minute; each period (day / ISO week) is sent at most once per
+schedule, and a send missed while the server was down is caught up on the
+next tick — for weekly mode on any later day of the same ISO week (a week
+missed without the server coming back up at all is skipped). Each run sends
+the per-user reports plus the team report. The card shows the last send per
+schedule. A pre-existing single-mode configuration (关闭/每天/每周) is migrated
 automatically on first read.
 
 Plain HTTP is acceptable on a trusted internal network; put a TLS proxy in
