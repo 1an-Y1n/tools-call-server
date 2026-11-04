@@ -258,9 +258,9 @@ internet needed at view time; `GET /` redirects here). Layout: KPI cards on top
 the total Skill 调用趋势, the per-skill trends of the six most used skills,
 and the 最常用的 Skill ranking with a sortable table; a 7/14/30/90-day/all
 window switch), 调用分析 (Skill-focused drill-down — 调用趋势, 谁在用 and a
-统计表 over 时间 × 用户 × 项目), 用户分析 (user × tool / user × skill stacked
-charts; admins can pick any user, regular users are locked to their own
-records), 用户管理 (admin-only account management, see
+统计表 over 时间 × 用户 × 项目), 用户分析 (five charts, see
+[用户分析](#用户分析); admins can pick any user, regular users are locked to
+their own records), 用户管理 (admin-only account management, see
 [用户管理 tab](#用户管理-tab)), 账号 (change own password; admins additionally
 get the SMTP and schedule cards). Data is embedded server-side on load and
 refreshed via `/v1/stats` every 30 s (toggle) or on demand. Requires login; the
@@ -341,6 +341,27 @@ is selected — it would only ever show that one person.
 
 The period-over-period metric compares the same scope as the chart: the
 previous window of the same user and item.
+
+### 用户分析
+
+Five charts over the same 7/14/30/90-day/all window, each answering a
+different question:
+
+| 图表 | 回答 |
+| --- | --- |
+| 用户活跃热力图 | 谁在哪一天在忙 —— 用户 × 天，颜色越深调用越多 |
+| 用户调用趋势 | 每位用户的用量走势，调用最多的 8 位并排对比 |
+| 用户工具构成 | 100% 堆叠 —— 每个人**自己**的工具构成比例，看出偏好差异 |
+| 用户 × 工具调用 | 绝对量堆叠，含绿色的 `skill` 汇总桶 |
+| 用户 × Skill 调用 | 同上，按 Skill 拆分 |
+
+下面是 用户概览 表：总调用 / 活跃天数 / 日均 / 主要工具 / 主要 Skill，
+可排序。「主要工具」会跳过 `skill` 合成桶——它已经单独出现在「主要 Skill」
+一列里。
+
+All five charts read from the per-day buckets (`user_tool_days`,
+`user_skill_days`) instead of the all-time `user_tools` / `user_skills`, so
+changing the window re-scopes every chart on the page at once.
 
 ### Admin / account endpoints
 
