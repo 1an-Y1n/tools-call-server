@@ -322,12 +322,13 @@ def now_iso():
 
 INGEST_MAX_BYTES = 10_000_000
 
-# The person a record belongs to. The collector reports the Devin account
-# (name + email) whenever it can resolve it; records collected before that
-# (or from a collector without a Devin login) only carry the local account
-# name. Grouping by this expression keeps every aggregation consistent and
-# lets old and new data live in the same table.
-PERSON_SQL = "COALESCE(email, user)"
+# The person a record belongs to: the Devin email. There is deliberately no
+# fallback to the collector's local account name — a record without an email
+# cannot be attributed to an account, and showing it as a person is how a
+# machine name ("ian_yin") used to appear in the dashboard as if it were
+# somebody. Such records still count in the totals, tool and skill rankings;
+# they are just not part of the person dimension (see the unattributed count).
+PERSON_SQL = "email"
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_MAX_LEN = 254
@@ -512,6 +513,7 @@ def _invite_worker():
 
 def do_ingest(body, base_url=""):
     rows, rejects, emails = [], [], set()
+    dropped = 0
     for line in body.splitlines():
         line = line.strip()
         if not line:
@@ -521,9 +523,16 @@ def do_ingest(body, base_url=""):
             if not isinstance(record, dict):
                 raise ValueError("record is not a JSON object")
             row = row_from_record(record, line)
+            if not row[7]:
+                # No Devin email: the record cannot be attributed to an
+                # account. Collectors older than v1.11.0 send these; they are
+                # dropped rather than stored, so nothing in the database is
+                # keyed by a machine name. Nothing is written, not even to
+                # `rejects` — only the count is reported back.
+                dropped += 1
+                continue
             rows.append(row)
-            if row[7]:
-                emails.add(row[7])
+            emails.add(row[7])
         except Exception as exc:
             rejects.append((now_iso(), line, f"{type(exc).__name__}: {exc}"))
 
@@ -551,7 +560,10 @@ def do_ingest(body, base_url=""):
         if created:
             queue_invite(email, password, base_url)
 
-    return {"accepted": len(rows), "rejected": len(rejects)}
+    if dropped:
+        log.warning("dropped %d record(s) without a Devin email"
+                    " (collector older than v1.11.0); nothing stored", dropped)
+    return {"accepted": len(rows), "rejected": len(rejects), "dropped": dropped}
 
 
 @app.post("/v1/events")
@@ -665,6 +677,11 @@ def _rename_user(old_name, new_name):
             # the person key is the email when the collector reported one, so a
             # rename has to carry those records over as well
             conn.execute("UPDATE events SET email = ? WHERE email = ?", (new_name, old_name))
+            if is_email(new_name):
+                # records that only carried the old local name now belong to
+                # the address, otherwise the rename would orphan them
+                conn.execute("UPDATE events SET email = ? WHERE user = ?"
+                             " AND (email IS NULL OR email = '')", (new_name, new_name))
             conn.commit()
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="用户名已存在")
@@ -1673,6 +1690,8 @@ def _person_names(rows):
     """Map person key -> display name (the most frequently reported one)."""
     names = {}
     for r in rows:
+        if not r["person"]:
+            continue  # unattributed records have no person to name
         if r["person"] not in names:  # rows are ordered by count desc
             names[r["person"]] = r["name"]
     return names
@@ -1843,6 +1862,13 @@ def compute_stats(user=None):
             per_user_hours = user_skill_hours.setdefault(r["person"], {}).setdefault(label, {})
             per_user_hours[r["hour"]] = per_user_hours.get(r["hour"], 0) + r["n"]
 
+        # records the collector could not attribute to an email: they count in
+        # the totals but belong to no person, so the UI says so instead of
+        # inventing one out of the machine name
+        unattributed = conn.execute(
+            "SELECT COUNT(*) AS n FROM events"
+            f" WHERE (email IS NULL OR email = ''){flt}", args).fetchone()["n"]
+
     def _valid_day(day):
         return bool(day) and len(day) == 10 and day[4] == "-" and day[7] == "-"
 
@@ -1850,6 +1876,7 @@ def compute_stats(user=None):
         "total": total,
         "by_client": {(r["client_id"] or "<unknown>"): r["n"] for r in by_client},
         "by_user": {(r["person"] or "<unknown>"): r["n"] for r in by_user},
+        "unattributed": unattributed,
         "person_names": _person_names(person_name_rows),
         "by_tool": {r["tool"]: r["n"] for r in by_tool},
         "by_skill": by_skill,

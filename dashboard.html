@@ -1925,7 +1925,10 @@ function renderUserTable(d, days, daily, toolItems, skillItems, persons){
   });
   h += '</tbody></table>';
   box.innerHTML = rows.length ? h : '<div class="empty">当前筛选下没有数据</div>';
-  document.getElementById("ua-table-hint").textContent = rows.length ? `${rows.length} 位用户` : "";
+  const unattr = Number(d.unattributed || 0);
+  const hint = rows.length ? `${rows.length} 位用户` : "";
+  document.getElementById("ua-table-hint").textContent =
+    unattr > 0 ? `${hint}${hint ? " · " : ""}另有 ${unattr} 条记录没有邮箱（旧版采集器），未计入用户` : hint;
   box.querySelectorAll("th[data-sort]").forEach(th => {
     const key = th.dataset.sort;
     if (UA.sort.key === key){
@@ -2155,6 +2158,9 @@ function userRowHtml(u){
   const self = u.username === UM.self;
   const rank = roleRank(u.role);
   const disabled = u.status === "disabled";
+  // a regular account must be named after its mailbox; an administrator may
+  // use an alias on purpose
+  const legacyName = u.role === "user" && !isEmailName(u.username);
   const inviteFailed = !u.invite_sent_at && !!u.invite_error;
   const pendingLabel = inviteFailed ? "邀请未送达" : (u.must_change_password ? "待改密" : "");
   const pending = !!pendingLabel;
@@ -2175,6 +2181,7 @@ function userRowHtml(u){
       '<div class="um-user-copy">' +
         '<div class="um-user-name"><span>' + esc(u.username) + '</span>' +
           (self ? '<span class="um-tag" data-tone="self">我</span>' : '') +
+          (legacyName ? '<span class="um-tag" data-tone="warn">需改为邮箱</span>' : '') +
           (pending ? '<span class="um-tag" data-tone="warn">' + pendingLabel + '</span>' : '') +
         '</div>' +
         '<div class="um-user-sub">' + subParts.join(" · ") + '</div>' +

@@ -83,8 +83,8 @@ email opens an account named after that address:
 - a later record for a known address never sends another mail.
 
 The login name **is** the report mailbox — one field, so the two cannot drift
-apart. Records are matched by `COALESCE(email, user)`, which for such an account
-is exactly its name.
+apart, and it is also the [person key](#who-a-record-belongs-to) the records are
+matched by.
 
 **Allow-list** (用户管理 → 邮件发送设置 → 邮箱白名单): empty by default, which
 accepts every address. Entries are domains (`sercomm.com`, `*@sercomm.com`) or
@@ -140,21 +140,28 @@ since collector v1.11.0, the Devin account it belongs to: `name` and `email`
 (read from `devin auth status`; both are null when the collector cannot resolve
 a Devin login, in which case the collector records nothing at all).
 
-The server derives one **person key** per record:
+The **person key is the email** — nothing else:
 
 ```sql
-COALESCE(email, user)
+email
 ```
 
-- a record with a Devin email belongs to that email — one person, even if
-  several people share the same build account;
-- an older record (collected before the Devin identity, or by a collector
-  without a Devin login) keeps its local account name as the key.
+There is deliberately no fallback to the collector's local account name. A
+record without an email cannot be attributed to an account, and using the
+machine name instead is how `ian_yin` used to show up in the dashboard as if
+it were a person. Such records come from a collector older than v1.11.0, or
+from a JSONL backlog written before the upgrade — **the server now refuses
+them**: they are dropped at ingest and never stored, so the database contains
+nothing that is not attributable. The batch response reports how many were
+dropped (`"dropped": K`) and the server logs one line per such batch; the
+collector gets a 200 and does not retry them.
 
-Every aggregation, filter and report uses that expression, so old and new
-records can live in the same table. An account created from `ian_yin@sercomm.com`
-sees exactly the records of that Devin account; the dashboard shows the reported
-display name next to the key (`Ian Yin · ian_yin@sercomm.com`).
+Consequence: a fleet that has not upgraded yet contributes nothing at all.
+Upgrade the collector first, or those machines stay invisible.
+
+An account created from `ian_yin@sercomm.com` therefore sees exactly the
+records carrying that address, and the dashboard shows the reported display
+name next to it (`Ian Yin · ian_yin@sercomm.com`).
 
 **Report recipients**: the account's mailbox — `users.email`, or the account
 name when that is an address (which it is for every account provisioned from
@@ -282,7 +289,9 @@ front if the dashboard is reachable more widely.
 
 Ingest one batch. Body: NDJSON — one JSON record per line (the same records the
 plugin appends to its `events/*-calls.jsonl` files). Malformed lines are quarantined
-into the `rejects` table; the rest are stored. Returns `{"accepted": N, "rejected": M}`.
+into the `rejects` table; the rest are stored. A well-formed record that carries
+no Devin email is **refused**: nothing is written (not even to `rejects`), and it
+is counted separately. Returns `{"accepted": N, "rejected": M, "dropped": K}`.
 
 The client only advances its upload cursor on a 2xx response, so a 4xx/5xx
 (server error, bad request) leaves the data pending locally and the next
@@ -291,9 +300,10 @@ attempt retries.
 ### `GET /v1/stats`
 
 Aggregated counts: total records, per-tool counts, per-skill counts, per-day counts.
-The user dimension uses the [person key](#who-a-record-belongs-to)
-(`COALESCE(email, user)`), and the payload adds `person_names` — a map from
-person key to the display name the collector reported.
+The user dimension uses the [person key](#who-a-record-belongs-to) (the email),
+and the payload adds `person_names` — a map from person key to the display name
+the collector reported — plus `unattributed`, the number of records that carry
+no email.
 Hourly buckets (`by_hour`, `tool_hours`, `skill_hours`, `user_tool_hours`,
 `user_skill_hours`) are included for the last two days only — see
 [时间窗口与粒度](#时间窗口与粒度).
