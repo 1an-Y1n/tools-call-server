@@ -2169,8 +2169,14 @@ function userRowHtml(u){
   const statusTag = '<span class="um-tag" data-tone="' + (disabled ? "off" : "on") + '">' +
     (disabled ? "已停用" : "正常") + '</span>';
   const subParts = [];
-  if (u.last_login_at) subParts.push("最近登录 " + fmtUserDate(u.last_login_at));
-  else subParts.push("从未登录");
+  if (inviteFailed){
+    // the reason the mail did not arrive — without it the tag is a dead end
+    subParts.push(u.invite_error);
+  } else if (u.last_login_at) {
+    subParts.push("最近登录 " + fmtUserDate(u.last_login_at));
+  } else {
+    subParts.push("从未登录");
+  }
   const usage = u.event_count
     ? `<b>${Number(u.event_count).toLocaleString("zh-CN")}</b> 条`
     : '<span class="um-email is-empty">无数据</span>';
@@ -2182,7 +2188,8 @@ function userRowHtml(u){
         '<div class="um-user-name"><span>' + esc(u.username) + '</span>' +
           (self ? '<span class="um-tag" data-tone="self">我</span>' : '') +
           (legacyName ? '<span class="um-tag" data-tone="warn">需改为邮箱</span>' : '') +
-          (pending ? '<span class="um-tag" data-tone="warn">' + pendingLabel + '</span>' : '') +
+          (pending ? '<span class="um-tag" data-tone="warn" title="' +
+            esc(inviteFailed ? u.invite_error : pendingLabel) + '">' + pendingLabel + '</span>' : '') +
         '</div>' +
         '<div class="um-user-sub">' + subParts.join(" · ") + '</div>' +
       '</div>' +
