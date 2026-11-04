@@ -1191,6 +1191,7 @@ function granularityFor(days){
   return "week";
 }
 const GRAN_LABEL = {hour:"按小时", day:"按天", week:"按周"};
+const GRAN_UNIT = {hour:"小时", day:"日", week:"周"};
 function isoWeek(day){
   const d = new Date(day + "T00:00:00Z");
   const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -1439,7 +1440,7 @@ function anUserCounts(d, kind, item, days, gran){
         n += perDay[day];
       });
     });
-    if (n > 0) out.push({name:userShort(d, person), full:userLabel(d, person), n});
+    if (n > 0) out.push({key:person, name:userShort(d, person), full:userLabel(d, person), n});
   });
   return out.sort((a,b) => b.n - a.n);
 }
@@ -1475,7 +1476,7 @@ function renderAnalysisTab(d){
   const topSel = document.getElementById("an-top-sel");
   topSel.disabled = !split;
   document.getElementById("an-top-wrap").style.opacity = split ? "" : ".5";
-  let values, topSeries = null;
+  let topSeries = null;
   if (byItem){
     topSeries = items.map(name => {
       const counts = anItemCounts(d, kind, user, name, keys, days, gran);
@@ -1483,7 +1484,6 @@ function renderAnalysisTab(d){
     }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, AN.topN);
     draw("c-an-daily", optMultiLine(labels,
           topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
-    values = topSeries.map(x => x.total);
   } else if (byUser){
     const people = Object.keys(kind === "skill"
       ? (d.user_skill_days || {}) : (d.user_tool_days || {}));
@@ -1493,13 +1493,18 @@ function renderAnalysisTab(d){
     }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, AN.topN);
     draw("c-an-daily", optMultiLine(labels,
           topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
-    values = topSeries.map(x => x.total);
   } else {
-    values = anItemCounts(d, kind, user, AN.item, keys, days, gran);
+    const values = anItemCounts(d, kind, user, AN.item, keys, days, gran);
     draw("c-an-daily", optLine(labels, values,
           {ma: values.length > 7 ? movingAvg(values, 7) : null,
            color: kind === "skill" ? CH.skill : CH.brand}));
   }
+
+  // The headline numbers must match what the chart is about: with one item
+  // selected they describe that item, not every item.
+  const selArr = byItem ? grand
+    : anItemCounts(d, kind, user, AN.item, keys, days, gran);
+  const selTotal = selArr.reduce((a,b) => a + b, 0);
 
   const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
   const what = AN.item === "__all__" ? "全部项目" : AN.item;
@@ -1509,15 +1514,19 @@ function renderAnalysisTab(d){
         : ` · 按调用最多的 ${topSeries.length} 位用户分列`)
     : "";
   document.getElementById("an-hint").textContent =
-    `${who}${what} · 最近 ${n} 天共 ${sum} 次` + splitNote;
+    `${who}${what} · 最近 ${n} 天共 ${selTotal} 次` + splitNote;
   document.getElementById("an-gran").textContent = GRAN_LABEL[gran];
 
+  // Averages and the period comparison are per bucket, so they must use the
+  // bucket count (14 days, 48 hours, 26 weeks, ...) rather than the day count.
+  const buckets = Math.max(keys.length, 1);
   const prevSum = periodSum(d, kind, user, AN.item, n);
-  const users = anUserCounts(d, kind, AN.item, days, gran);
+  const users = anUserCounts(d, kind, AN.item, days, gran)
+    .filter(u => user === "__all__" || u.key === user);
   renderMetrics("an-metrics", [
-    {v:sum, l:`最近 ${n} 天`, d:delta(sum, prevSum)},
-    {v:avgOf(grand).toFixed(1), l:`日均次数（${GRAN_LABEL[gran]}）`,
-     d:delta(avgOf(grand), prevSum / n)},
+    {v:selTotal, l:`最近 ${n} 天`, d:delta(selTotal, prevSum)},
+    {v:avgOf(selArr).toFixed(1), l:`${GRAN_UNIT[gran]}均次数`,
+     d:delta(avgOf(selArr), prevSum / buckets)},
     {v:users.length ? `${users.length} 位` : "—", l:"使用人数"}
   ]);
   // with a single user selected the breakdown would be just that user

@@ -335,18 +335,23 @@ so a hundred-row result does not stretch the page to several thousand pixels.
 Clicking a Skill bar in the overview opens this page with that Skill
 selected.
 
-**The trend chart changes shape with the filters**, splitting into coloured
-lines two different ways:
+#### 调用趋势显示逻辑
 
-| 用户 | 项目 | 趋势 |
-| --- | --- | --- |
-| 全部 / 指定 | 全部项目 | 按**项目**分列 —— 调用最多的 N 个项目 |
-| 全部用户 | 指定项目 | 按**用户**分列 —— 调用最多的 N 位用户 |
-| 指定用户 | 指定项目 | 单条线（并禁用分列控件） |
+三档筛选（用户 / 项目 / 时间窗口）决定这张图的每一种形态：
 
-**分列** in the toolbar picks N: Top 3 / 5 / 8 / 10 (default 5). The 谁在用
-chart is hidden when a single user is selected — it would only ever show that
-one person.
+| 用户 | 项目 | 图表 | 说明 |
+| --- | --- | --- | --- |
+| 全部 / 指定 | 全部项目 | 多条线，**按项目** | 调用最多的 N 个项目各一条 |
+| 全部用户 | 指定项目 | 多条线，**按用户** | 调用最多的 N 位用户各一条 |
+| 指定用户 | 指定项目 | 单条线 | 加 7 日均线；分列控件禁用并置灰 |
+
+- **分列** 选择器控制 N：Top 3 / 5 / 8 / 10，默认 5。项目数或用户数不足 N 时按实际数量画。
+- **时间粒度自动跟随窗口**：≤2 天按小时、≤90 天按天、更长按周。所有线共用同一组桶键，因此不会错位。
+- **顶部三个指标始终与当前筛选一致**：总次数、每桶均值（日/小时/周均）、使用人数。
+  环比对比的是"同一用户、同一项目"的上一个等长窗口。
+- **「共 N 次」是当前筛选的总量**：选了具体项目就是该项目的量，不是全部项目的量。
+- 选中单个用户时，「谁在用」卡片隐藏（否则只会显示那一个人）。
+- **统计表有独立的时间范围**，与趋势窗口互不影响。
 
 The period-over-period metric compares the same scope as the chart: the
 previous window of the same user and item.
