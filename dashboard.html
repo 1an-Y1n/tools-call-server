@@ -403,6 +403,14 @@ table.sortable th[data-dir] .sort-arrow{opacity:1;color:var(--chart-brand)}
 .legend-hint{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--chart-dim)}
 .legend-hint i{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--chart-skill)}
 .tbl-wrap{width:100%;overflow-x:auto}
+/* the stats table can hold hundreds of rows — keep it in a scroll box so the
+   page does not grow to several thousand pixels */
+#t-an{max-height:560px;overflow-y:auto;overflow-x:auto}
+#t-an thead th{position:sticky;top:0;z-index:2}
+table.xtab th:first-child,table.xtab td:first-child{position:sticky;left:0}
+table.xtab thead th:first-child{z-index:3}
+table.xtab tbody tr:hover td{background:#fafbfc}
+table.xtab tbody tr:hover td:first-child{background:#fafbfc}
 </style>
 </head>
 <body>
@@ -424,8 +432,7 @@ table.sortable th[data-dir] .sort-arrow{opacity:1;color:var(--chart-brand)}
 
   <div class="tabs">
     <div class="tab on" data-tab="overview">总览</div>
-    <div class="tab" data-tab="tool">Tool 分析</div>
-    <div class="tab" data-tab="skill">Skill 分析</div>
+    <div class="tab" data-tab="analysis">调用分析</div>
     <div class="tab" data-tab="user" id="tab-user">用户分析</div>
     <div class="tab" data-tab="manage" id="tab-manage" style="display:none">用户管理</div>
     <div class="tab" data-tab="account">账号</div>
@@ -466,14 +473,22 @@ table.sortable th[data-dir] .sort-arrow{opacity:1;color:var(--chart-brand)}
     </div>
   </div>
 
-  <div class="panel" id="p-tool">
+  <div class="panel" id="p-analysis">
     <div class="card">
-      <div class="card-head"><div class="ttl">Tool 按天调用明细</div></div>
+      <div class="card-head">
+        <div class="ttl">按天调用明细</div>
+        <div class="card-head-actions">
+          <div class="seg" id="an-kind">
+            <button type="button" data-kind="tool" class="on">工具</button>
+            <button type="button" data-kind="skill">Skill</button>
+          </div>
+        </div>
+      </div>
       <div class="toolbar">
-        <label id="tool-user-wrap">用户 <select id="tool-user-sel"><option value="__all__">全部用户</option></select></label>
-        <label>Tool <select id="tool-sel"></select></label>
+        <label id="an-user-wrap">用户 <select id="an-user-sel"><option value="__all__">全部用户</option></select></label>
+        <label>项目 <select id="an-item-sel"><option value="__all__">全部项目</option></select></label>
         <label>时间窗口
-          <select id="days-sel">
+          <select id="an-days-sel">
             <option value="7">最近 7 天</option>
             <option value="14" selected>最近 14 天</option>
             <option value="30">最近 30 天</option>
@@ -482,53 +497,34 @@ table.sortable th[data-dir] .sort-arrow{opacity:1;color:var(--chart-brand)}
             <option value="365">最近一年</option>
           </select>
         </label>
-        <span class="muted" id="tool-hint"></span>
+        <span class="muted" id="an-hint"></span>
       </div>
-      <div id="c-tool-daily" class="chart"></div>
-      <div class="metrics" id="tool-metrics" style="margin-top:14px"></div>
+      <div id="c-an-daily" class="chart"></div>
+      <div class="metrics" id="an-metrics" style="margin-top:14px"></div>
     </div>
     <div class="grid2">
       <div class="card">
-        <div class="card-head"><div class="ttl">窗口内 Tool 排行</div></div>
-        <div id="c-tool-rank" class="chart"></div>
+        <div class="card-head"><div class="ttl">窗口内项目排行</div></div>
+        <div id="c-an-rank" class="chart"></div>
       </div>
       <div class="card">
-        <div class="card-head"><div class="ttl">谁在用这个 Tool</div></div>
-        <div id="c-tool-users" class="chart"></div>
+        <div class="card-head"><div class="ttl">谁在用</div></div>
+        <div id="c-an-users" class="chart"></div>
       </div>
     </div>
-  </div>
-
-  <div class="panel" id="p-skill">
     <div class="card">
-      <div class="card-head"><div class="ttl">Skill 按天调用明细</div></div>
-      <div class="toolbar">
-        <label id="skill-user-wrap">用户 <select id="skill-user-sel"><option value="__all__">全部用户</option></select></label>
-        <label>Skill <select id="skill-sel"></select></label>
-        <label>时间窗口
-          <select id="skill-days-sel">
-            <option value="7">最近 7 天</option>
-            <option value="14" selected>最近 14 天</option>
-            <option value="30">最近 30 天</option>
-            <option value="90">最近 90 天</option>
-            <option value="180">最近半年</option>
-            <option value="365">最近一年</option>
-          </select>
-        </label>
-        <span class="muted" id="skill-hint"></span>
+      <div class="card-head">
+        <div class="ttl">统计表</div>
+        <div class="card-head-actions">
+          <div class="seg" id="an-table">
+            <button type="button" data-mode="detail" class="on">明细（用户 × 项目）</button>
+            <button type="button" data-mode="cross">交叉表（用户 × 项目）</button>
+          </div>
+          <span class="muted" id="an-table-hint"></span>
+        </div>
       </div>
-      <div id="c-skill-daily" class="chart"></div>
-      <div class="metrics" id="skill-metrics" style="margin-top:14px"></div>
-    </div>
-    <div class="grid2">
-      <div class="card">
-        <div class="card-head"><div class="ttl">窗口内 Skill 排行</div></div>
-        <div id="c-skill-rank" class="chart"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="ttl">谁在用这个 Skill</div></div>
-        <div id="c-skill-users" class="chart"></div>
-      </div>
+      <div id="t-an" class="tbl-wrap"></div>
+      <div class="chart-note" id="an-table-note"></div>
     </div>
   </div>
 
@@ -1194,117 +1190,243 @@ function populateUserFilter(id, d){
   sel.value = users.some(([u]) => u === cur) ? cur : "__all__";
 }
 
-function renderToolTab(d){
-  populateUserFilter("tool-user-sel", d);
-  const user = document.getElementById("tool-user-sel").value;
-  const sel = document.getElementById("tool-sel");
-  const names = user === "__all__" ? Object.keys(d.tool_days || {})
-    : Object.keys((d.user_tool_days || {})[user] || {});
-  const cur = sel.value;
-  sel.innerHTML = names.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("")
-    || "<option value=''>（暂无 tool 数据）</option>";
-  if (names.includes(cur)) sel.value = cur;
-  const tool = sel.value;
-  if (!tool) return;
-  const n = parseInt(document.getElementById("days-sel").value, 10);
-  const days = dayWindow(n, 0);
-  const prevDays = dayWindow(n, n);
-  const perDay = user === "__all__" ? (d.tool_days || {})[tool] || {}
-    : ((d.user_tool_days || {})[user] || {})[tool] || {};
-  const values = days.map(x => perDay[x] || 0);
-  draw("c-tool-daily", optLine(days, values,
-        {ma: values.length > 7 ? movingAvg(values, 7) : null}));
-  const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
-  const sum = sumDays(perDay, days);
-  document.getElementById("tool-hint").textContent =
-    `${who}${tool} · 最近 ${n} 天共 ${sum} 次`;
-  // period over period + where this tool sits in the window
-  const prevSum = sumDays(perDay, prevDays);
-  const rank = toolsInWindow(d, user, days);
-  const pos = rank.findIndex(r => r.name === tool) + 1;
-  renderMetrics("tool-metrics", [
-    {v:sum, l:`最近 ${n} 天`, d:delta(sum, prevSum)},
-    {v:avgOf(values).toFixed(1), l:"日均次数", d:delta(avgOf(values), avgOf(prevDays.map(x => perDay[x] || 0)))},
-    {v:pos ? `${pos} / ${rank.length}` : "—", l:"窗口内 Tool 排名"}
-  ]);
-  draw("c-tool-rank", optBarH(rank.slice(0, 12), CH.brand, {highlight: tool}));
-  draw("c-tool-users", optBarH(usersOfTool(d, tool, days), CH.skill));
-}
+// ---- 调用分析 (Tool + Skill 合并) ----------------------------------------
+const AN = {
+  kind:"tool", user:"__all__", item:"__all__", days:14,
+  mode:"detail", sort:{key:"n", dir:"desc"}
+};
 
-function renderSkillTab(d){
-  populateUserFilter("skill-user-sel", d);
-  const user = document.getElementById("skill-user-sel").value;
-  const sel = document.getElementById("skill-sel");
-  const names = user === "__all__" ? Object.keys(d.by_skill || {})
-    : Object.keys((d.user_skills || {})[user] || {});
-  const cur = sel.value;
-  sel.innerHTML = names.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
-    || "<option value=''>（暂无 skill 数据）</option>";
-  if (names.includes(cur)) sel.value = cur;
-  const skill = sel.value;
-  if (!skill) return;
-  const n = parseInt(document.getElementById("skill-days-sel").value, 10);
-  const days = dayWindow(n, 0);
-  const prevDays = dayWindow(n, n);
-  const perDay = user === "__all__" ? (d.skill_days || {})[skill] || {}
-    : ((d.user_skill_days || {})[user] || {})[skill] || {};
-  const values = days.map(x => perDay[x] || 0);
-  draw("c-skill-daily", optLine(days, values,
-        {ma: values.length > 7 ? movingAvg(values, 7) : null}));
-  const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
-  const sum = sumDays(perDay, days);
-  document.getElementById("skill-hint").textContent =
-    `${who}${skill} · 最近 ${n} 天共 ${sum} 次`;
-  const prevSum = sumDays(perDay, prevDays);
-  // the ranking chart now uses the same window as the trend above, so the
-  // two numbers can be compared (before: all-time vs 14 days, side by side)
-  const rank = skillsInWindow(d, user, days);
-  const pos = rank.findIndex(r => r.name === skill) + 1;
-  renderMetrics("skill-metrics", [
-    {v:sum, l:`最近 ${n} 天`, d:delta(sum, prevSum)},
-    {v:avgOf(values).toFixed(1), l:"日均次数", d:delta(avgOf(values), avgOf(prevDays.map(x => perDay[x] || 0)))},
-    {v:pos ? `${pos} / ${rank.length}` : "—", l:"窗口内 Skill 排名"}
-  ]);
-  draw("c-skill-rank", optBarH(rank.slice(0, 12), CH.skill, {highlight: skill}));
-  draw("c-skill-users", optBarH(usersOfSkill(d, skill, days), CH.brand));
+function anSource(d, kind){
+  return kind === "tool" ? (d.user_tool_days || {}) : (d.user_skill_days || {});
 }
-
-// Which tools/skills were used inside the window, biggest first.
-function toolsInWindow(d, user, days){
-  const src = user === "__all__" ? (d.tool_days || {}) : ((d.user_tool_days || {})[user] || {});
-  const out = [];
-  Object.keys(src).forEach(t => {
-    const n = sumDays(src[t], days);
-    if (n > 0) out.push({name:t, n,
-      note: t === SKILL_BUCKET ? "Skill 调用（内置工具之外）" : ""});
+function anAllSource(d, kind){
+  return kind === "tool" ? (d.tool_days || {}) : (d.skill_days || {});
+}
+// Per-day counts for the current (user, item) selection. "全部" aggregates
+// over the whole dimension, so the trend can show the total as well.
+function anSeries(d, kind, user, item, days){
+  const out = {};
+  days.forEach(day => out[day] = 0);
+  const src = user === "__all__" ? anAllSource(d, kind) : ((anSource(d, kind) || {})[user] || {});
+  Object.keys(src).forEach(name => {
+    if (item !== "__all__" && name !== item) return;
+    const per = src[name] || {};
+    days.forEach(day => { out[day] += per[day] || 0; });
   });
-  return out.sort((a,b) => b.n - a.n);
+  return out;
 }
-function skillsInWindow(d, user, days){
-  const src = user === "__all__" ? (d.skill_days || {}) : ((d.user_skill_days || {})[user] || {});
-  const out = [];
-  Object.keys(src).forEach(s => {
-    const n = sumDays(src[s], days);
-    if (n > 0) out.push({name:s, n});
-  });
-  return out.sort((a,b) => b.n - a.n);
+// The items available for the current user filter.
+function anItems(d, kind, user){
+  if (user === "__all__") return Object.keys(anAllSource(d, kind)).sort();
+  return Object.keys((anSource(d, kind) || {})[user] || {}).sort();
 }
-// Who used it — the question the old pages could not answer.
-function usersOfTool(d, tool, days){
+// Per-user totals for the current item (or the item total when "全部").
+function anUserCounts(d, kind, item, days){
+  const src = anSource(d, kind);
   const out = [];
-  Object.keys(d.user_tool_days || {}).forEach(person => {
-    const n = sumDays((d.user_tool_days[person] || {})[tool], days);
+  Object.keys(src).forEach(person => {
+    const per = src[person] || {};
+    let n = 0;
+    Object.keys(per).forEach(name => {
+      if (item !== "__all__" && name !== item) return;
+      n += sumDays(per[name], days);
+    });
     if (n > 0) out.push({name:userShort(d, person), full:userLabel(d, person), n});
   });
   return out.sort((a,b) => b.n - a.n);
 }
-function usersOfSkill(d, skill, days){
+
+function renderAnalysisTab(d){
+  const kind = AN.kind;
+  const user = AN.user;
+  const item = AN.item;
+  const n = AN.days;
+
+  // item select follows the user filter
+  const items = anItems(d, kind, user);
+  const sel = document.getElementById("an-item-sel");
+  // AN.item is the source of truth: a drill-down may have set it before the
+  // select was rebuilt, and the stale select value would overwrite it
+  sel.innerHTML = '<option value="__all__">全部项目</option>' +
+    items.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  sel.value = items.includes(AN.item) ? AN.item : "__all__";
+  AN.item = sel.value;
+
+  const days = dayWindow(n, 0);
+  const prevDays = dayWindow(n, n);
+  const series = anSeries(d, kind, user, AN.item, days);
+  const values = days.map(x => series[x] || 0);
+  draw("c-an-daily", optLine(days, values,
+        {ma: values.length > 7 ? movingAvg(values, 7) : null}));
+
+  const sum = values.reduce((a,b) => a + b, 0);
+  const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
+  const what = AN.item === "__all__" ? "全部项目" : AN.item;
+  document.getElementById("an-hint").textContent =
+    `${who}${what} · 最近 ${n} 天共 ${sum} 次`;
+
+  const prevSeries = anSeries(d, kind, user, AN.item, prevDays);
+  const prevSum = prevDays.reduce((a,day) => a + (prevSeries[day] || 0), 0);
+  const rank = anRank(d, kind, user, days);
+  const pos = AN.item === "__all__" ? 0 : rank.findIndex(r => r.name === AN.item) + 1;
+  renderMetrics("an-metrics", [
+    {v:sum, l:`最近 ${n} 天`, d:delta(sum, prevSum)},
+    {v:avgOf(values).toFixed(1), l:"日均次数", d:delta(avgOf(values), avgOf(prevDays.map(x => prevSeries[x] || 0)))},
+    {v:pos ? `${pos} / ${rank.length}` : "—", l:"窗口内排名"}
+  ]);
+  draw("c-an-rank", optBarH(rank.slice(0, 12), kind === "tool" ? CH.brand : CH.skill,
+        {highlight: AN.item === "__all__" ? null : AN.item}));
+  draw("c-an-users", optBarH(anUserCounts(d, kind, AN.item, days),
+        kind === "tool" ? CH.skill : CH.brand));
+  renderAnalysisTable(d, days);
+}
+
+function anRank(d, kind, user, days){
+  const src = user === "__all__" ? anAllSource(d, kind) : ((anSource(d, kind) || {})[user] || {});
   const out = [];
-  Object.keys(d.user_skill_days || {}).forEach(person => {
-    const n = sumDays((d.user_skill_days[person] || {})[skill], days);
-    if (n > 0) out.push({name:userShort(d, person), full:userLabel(d, person), n});
+  Object.keys(src).forEach(name => {
+    const n = sumDays(src[name], days);
+    if (n > 0) out.push({name, n});
   });
   return out.sort((a,b) => b.n - a.n);
+}
+
+// ---- 统计表：任意时间 × 用户 × 项目 ---------------------------------------
+function renderAnalysisTable(d, days){
+  const kind = AN.kind;
+  const src = anSource(d, kind);
+  const persons = Object.keys(src).filter(p => AN.user === "__all__" || p === AN.user);
+  const items = [];
+  persons.forEach(p => {
+    Object.keys(src[p] || {}).forEach(name => {
+      if (AN.item !== "__all__" && name !== AN.item) return;
+      if (!items.includes(name)) items.push(name);
+    });
+  });
+  items.sort((a,b) => {
+    const ta = persons.reduce((s,p) => s + sumDays((src[p]||{})[a], days), 0);
+    const tb = persons.reduce((s,p) => s + sumDays((src[p]||{})[b], days), 0);
+    return tb - ta;
+  });
+  const box = document.getElementById("t-an");
+  const hint = document.getElementById("an-table-hint");
+  if (!persons.length || !items.length){
+    box.innerHTML = '<div class="empty">当前筛选下没有数据</div>';
+    hint.textContent = "";
+    document.getElementById("an-table-note").innerHTML = "";
+    return;
+  }
+  const total = persons.reduce((s,p) => s + items.reduce((t,i) => t + sumDays((src[p]||{})[i], days), 0), 0) || 1;
+  hint.textContent = `${persons.length} 位用户 × ${items.length} 个项目 · 共 ${total.toLocaleString()} 次`;
+  box.innerHTML = AN.mode === "cross" ? crossTable(src, persons, items, days, d, total)
+                                     : detailTable(src, persons, items, days, d, total);
+  bindTableSort(src, persons, items, days, d, total);
+}
+
+// One row per (user, item) pair.
+function detailTable(src, persons, items, days, d, total){
+  let rows = [];
+  persons.forEach(p => {
+    items.forEach(i => {
+      const n = sumDays((src[p] || {})[i], days);
+      if (n > 0) rows.push({person:p, item:i, n});
+    });
+  });
+  const s = AN.sort;
+  rows = sortRows(rows, s.key, s.dir);
+  const max = Math.max(...rows.map(r => r.n)) || 1;
+  let h = '<table class="sortable" style="width:100%;border-collapse:collapse;font-size:13px">' +
+    '<thead><tr>' +
+    '<th data-sort="person" style="padding:8px 10px;text-align:left;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">用户<span class="sort-arrow">▼</span></th>' +
+    '<th data-sort="item" style="padding:8px 10px;text-align:left;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">项目<span class="sort-arrow">▼</span></th>' +
+    '<th data-sort="n" style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">次数<span class="sort-arrow">▼</span></th>' +
+    '<th data-sort="pct" style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">占比<span class="sort-arrow">▼</span></th>' +
+    '<th data-sort="avg" style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">日均<span class="sort-arrow">▼</span></th>' +
+    '<th style="padding:8px 10px;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb;width:190px">趋势</th>' +
+    '</tr></thead><tbody>';
+  rows.forEach(r => {
+    const per = (src[r.person] || {})[r.item] || {};
+    h += '<tr>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3">' + esc(userShort(d, r.person)) +
+        '<div style="font-size:11px;color:#9ca3af">' + esc(r.person) + '</div></td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3">' + esc(r.item) +
+        (r.item === SKILL_BUCKET ? ' <span class="chip is-skill">Skill 调用</span>' : '') + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">' + r.n + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">' +
+        (r.n / total * 100).toFixed(1) + '%</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">' +
+        (r.n / days.length).toFixed(1) + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3">' + sparkline(per, days) + '</td>' +
+    '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+// Users down the rows, items across the columns.
+function crossTable(src, persons, items, days, d, total){
+  // the skill bucket keeps its green in every table, like in the charts
+  const colColor = name => name === SKILL_BUCKET ? CH.skill
+    : (AN.kind === "tool" ? CH.brand : CH.skill);
+  let h = '<table class="xtab" style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<thead><tr>' +
+    '<th style="padding:8px 10px;text-align:left;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb;position:sticky;left:0;z-index:1">用户</th>' +
+    items.map(i => '<th style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb;white-space:nowrap">' + esc(i) + '</th>').join("") +
+    '<th style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">合计</th>' +
+    '</tr></thead><tbody>';
+  persons.forEach(p => {
+    const cells = items.map(i => sumDays((src[p] || {})[i], days));
+    const rowTotal = cells.reduce((a,b) => a + b, 0);
+    if (rowTotal === 0) return;
+    const max = Math.max(...cells) || 1;
+    h += '<tr>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;background:#fff;position:sticky;left:0;z-index:1">' +
+        esc(userShort(d, p)) + '</td>' +
+      cells.map((c, i) => {
+        const bg = c ? `background:${colColor(items[i])}${c === max && max > 0 ? "2e" : "14"};` : "";
+        return '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums;' + bg + '">' +
+               (c || "·") + '</td>';
+      }).join("") +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-weight:500;font-variant-numeric:tabular-nums">' + rowTotal + '</td>' +
+    '</tr>';
+  });
+  // column totals
+  const colTotals = items.map(i => persons.reduce((s,p) => s + sumDays((src[p]||{})[i], days), 0));
+  h += '<tr><td style="padding:8px 10px;font-weight:600;background:#f7f8fa">合计</td>' +
+    colTotals.map(c => '<td style="padding:8px 10px;text-align:right;font-weight:600;background:#f7f8fa;font-variant-numeric:tabular-nums">' + (c || "·") + '</td>').join("") +
+    '<td style="padding:8px 10px;text-align:right;font-weight:600;background:#f7f8fa;font-variant-numeric:tabular-nums">' +
+      colTotals.reduce((a,b) => a + b, 0) + '</td></tr>';
+  return h + '</tbody></table>';
+}
+
+// A 90x22 inline trend line for a single (user, item) pair.
+function sparkline(per, days){
+  const vals = days.map(d => per[d] || 0);
+  const max = Math.max(...vals) || 1;
+  const w = 90, h = 22, n = vals.length || 1;
+  const pts = vals.map((v, i) => {
+    const x = n === 1 ? w / 2 : (i / (n - 1)) * (w - 2) + 1;
+    const y = h - 2 - (v / max) * (h - 5);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" ' +
+    'style="display:block;overflow:visible" aria-hidden="true">' +
+    '<polyline points="' + pts + '" fill="none" stroke="' + (AN.kind === "tool" ? CH.brand : CH.skill) +
+    '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+
+function bindTableSort(src, persons, items, days, d, total){
+  document.querySelectorAll("#t-an th[data-sort]").forEach(th => {
+    const key = th.dataset.sort;
+    if (AN.sort.key === key){
+      th.dataset.dir = AN.sort.dir;
+      th.querySelector(".sort-arrow").textContent = AN.sort.dir === "asc" ? "▲" : "▼";
+    }
+    th.addEventListener("click", () => {
+      if (AN.sort.key === key) AN.sort.dir = AN.sort.dir === "desc" ? "asc" : "desc";
+      else AN.sort = {key, dir: key === "person" || key === "item" ? "asc" : "desc"};
+      renderAnalysisTable(DATA, dayWindow(AN.days, 0));
+    });
+  });
 }
 
 function renderUserTab(d){
@@ -1396,16 +1518,14 @@ let activeTab = "overview";
 
 function renderTabCharts(name, d){
   if (name === "overview") renderOverview(d);
-  else if (name === "tool") renderToolTab(d);
-  else if (name === "skill") renderSkillTab(d);
+  else if (name === "analysis") renderAnalysisTab(d);
   else if (name === "user") renderUserTab(d);
 }
 
 function renderAll(d){
   renderKpis(d);
   populateUserSelect(d);
-  populateUserFilter("tool-user-sel", d);
-  populateUserFilter("skill-user-sel", d);
+  populateUserFilter("an-user-sel", d);
   renderTabCharts(activeTab, d);
 }
 
@@ -2335,22 +2455,48 @@ if (USER && USER.name){
     loadSmtp();
     loadSchedule();
   } else {
-    document.getElementById("k-users-card").style.display = "none";
-    document.getElementById("tool-user-wrap").style.display = "none";
-    document.getElementById("skill-user-wrap").style.display = "none";
-    document.getElementById("tab-user").style.display = "none";
-    document.getElementById("tab-manage").style.display = "none";
+    // regular users: no team-wide views, no account management. Every id
+    // below must exist — a missing one used to throw and silently leave the
+    // remaining tabs visible.
+    ["k-users-card", "an-user-wrap", "tab-user", "tab-manage"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    });
   }
 }
 
 renderAll(DATA);
 
-document.getElementById("tool-user-sel").addEventListener("change", () => renderToolTab(DATA));
-document.getElementById("tool-sel").addEventListener("change", () => renderToolTab(DATA));
-document.getElementById("days-sel").addEventListener("change", () => renderToolTab(DATA));
-document.getElementById("skill-user-sel").addEventListener("change", () => renderSkillTab(DATA));
-document.getElementById("skill-sel").addEventListener("change", () => renderSkillTab(DATA));
-document.getElementById("skill-days-sel").addEventListener("change", () => renderSkillTab(DATA));
+document.getElementById("an-user-sel").addEventListener("change", ev => {
+  AN.user = ev.target.value;
+  AN.item = "__all__";
+  renderAnalysisTab(DATA);
+});
+document.getElementById("an-item-sel").addEventListener("change", ev => {
+  AN.item = ev.target.value;
+  renderAnalysisTab(DATA);
+});
+document.getElementById("an-days-sel").addEventListener("change", ev => {
+  AN.days = parseInt(ev.target.value, 10) || 14;
+  renderAnalysisTab(DATA);
+});
+document.getElementById("an-kind").addEventListener("click", ev => {
+  const btn = ev.target.closest("button[data-kind]");
+  if (!btn) return;
+  AN.kind = btn.dataset.kind;
+  AN.item = "__all__";
+  AN.sort = {key:"n", dir:"desc"};
+  document.querySelectorAll("#an-kind button").forEach(b => b.classList.toggle("on", b === btn));
+  renderAnalysisTab(DATA);
+});
+document.getElementById("an-table").addEventListener("click", ev => {
+  const btn = ev.target.closest("button[data-mode]");
+  if (!btn) return;
+  AN.mode = btn.dataset.mode;
+  AN.sort = {key:"n", dir:"desc"};
+  document.querySelectorAll("#an-table button").forEach(b => b.classList.toggle("on", b === btn));
+  renderAnalysisTable(DATA, dayWindow(AN.days, 0));
+});
 document.getElementById("user-sel").addEventListener("change", () => {
   selectedUser = document.getElementById("user-sel").value;
   renderUserTab(DATA);
@@ -2376,21 +2522,18 @@ document.getElementById("dist-kind").addEventListener("click", ev => {
 function distClick(params){
   const name = params && params.name;
   if (!name) return;
+  showTab("analysis");
   if (OV.kind === "tool"){
-    if (name === SKILL_BUCKET){
-      showTab("skill");
-      return;
-    }
-    showTab("tool");
-    const sel = document.getElementById("tool-sel");
-    if ([...sel.options].some(o => o.value === name)) sel.value = name;
-    renderToolTab(DATA);
+    AN.kind = name === SKILL_BUCKET ? "skill" : "tool";
+    AN.item = name === SKILL_BUCKET ? "__all__" : name;
   } else {
-    showTab("skill");
-    const sel = document.getElementById("skill-sel");
-    if ([...sel.options].some(o => o.value === name)) sel.value = name;
-    renderSkillTab(DATA);
+    AN.kind = "skill";
+    AN.item = name;
   }
+  document.querySelectorAll("#an-kind button").forEach(b => {
+    b.classList.toggle("on", b.dataset.kind === AN.kind);
+  });
+  renderAnalysisTab(DATA);
 }
 
 // Switch to a tab from anywhere (the distribution bars drill into the

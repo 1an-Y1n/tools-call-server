@@ -254,12 +254,12 @@ internet needed at view time; `GET /` redirects here). Layout: KPI cards on top
 (total / clients / users / last timestamp), then tabs — 总览 (daily trend with a
 7-day moving average and a 14/30/90-day/all window switch, plus one 调用分布
 card that toggles between 工具 and Skill and carries both the ranking bars and
-a sortable detail table), Tool 分析 and Skill 分析 (daily drill-downs
-filterable by 时间范围 × 用户 × tool/skill name with 7/14/30/90/180/365-day
-windows, each with period-over-period metrics, a window ranking chart and a
-「谁在用」 breakdown per user), 用户分析 (user × tool / user × skill stacked
-charts + tables; admins can pick any user, regular users are locked to their
-own records), 用户管理 (admin-only account management, see
+a sortable detail table), 调用分析 (the merged Tool + Skill page — daily
+drill-downs filterable by 时间范围 × 用户 × 项目 with 7/14/30/90/180/365-day
+windows, period-over-period metrics, a window ranking chart, a 「谁在用」
+breakdown and a 统计表 over 时间 × 用户 × 项目), 用户分析 (user × tool /
+user × skill stacked charts + tables; admins can pick any user, regular users
+are locked to their own records), 用户管理 (admin-only account management, see
 [用户管理 tab](#用户管理-tab)), 账号 (change own password; admins additionally
 get the SMTP and schedule cards). Data is embedded server-side on load and
 refreshed via `/v1/stats` every 30 s (toggle) or on demand. Requires login; the
@@ -283,6 +283,27 @@ hairline axes, one brand blue and one skill green). Reading notes:
   the matching Tool / Skill analysis tab with that item selected.
 - The window ranking chart dims every entry except the selected one, so the
   position of the current item is visible at a glance.
+
+### 调用分析 and the 统计表
+
+Tool 分析 and Skill 分析 were two near-identical pages; they are now one
+**调用分析** tab with a 工具 / Skill switch. Every filter applies to the whole
+page: 用户, 项目 (全部 or a specific tool/skill) and 时间窗口 (7 to 365 days).
+"全部项目" aggregates over the dimension, so the trend, the metrics, the
+ranking and the table all work with or without a specific item.
+
+The **统计表** at the bottom answers "任意时间 × 用户 × 项目":
+
+- **明细（用户 × 项目）** — one row per pair, with 次数 / 占比 / 日均 and an
+  inline sparkline of that pair's daily usage. Sortable by any column.
+- **交叉表（用户 × 项目）** — users down the rows, items across the columns,
+  with row and column totals. The first column stays put while the table
+  scrolls sideways.
+
+The table lives in a fixed-height scroll box with a sticky header, so a
+hundred-row result does not stretch the page to several thousand pixels.
+Clicking a bar in the overview's 调用分布 chart opens this page with the
+matching item selected.
 
 ### Admin / account endpoints
 
