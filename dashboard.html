@@ -951,6 +951,9 @@ function optBarH(rows, color, opts){
   };
 }
 
+// The colour a non-focused line fades to while another one is hovered.
+const DIM_LINE = "#aeb6c2";
+
 // Beyond the palette, keep hues apart with the golden angle.
 function seriesColor(i){
   if (i < PAL.length) return PAL[i];
@@ -958,10 +961,8 @@ function seriesColor(i){
 }
 
 // One line per series. No symbols and no area fill: with many series the
-// fills would muddy the chart. Passing `highlight` fades every other line so
-// one of them can be read on its own.
-function optMultiLine(buckets, series, opts){
-  const hl = (opts || {}).highlight || null;
+// fills would muddy the chart.
+function optMultiLine(buckets, series){
   return {
     grid:{left:8,right:46,top:36,bottom:8,containLabel:true},
     tooltip:{trigger:"axis",
@@ -975,19 +976,17 @@ function optMultiLine(buckets, series, opts){
     yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:CH.split}}}, axisCommon()),
     series: series.map((s,i) => {
       const color = s.color || seriesColor(i);
-      const dim = hl && hl !== s.name;
-      // dimmed lines go grey rather than transparent: they stay traceable
-      // while the highlighted one clearly leads
-      const dimColor = "#aeb6c2";
       return {name:s.name,type:"line",smooth:true,symbol:"none",data:s.data,
-        // without symbols the line itself has no hit target — this makes the
-        // stroke clickable, which the highlight-on-click depends on
+        // no symbols are drawn, so the stroke itself has to be the hit target
         triggerLineEvent:true,
         cursor:"pointer",
-        z: dim ? 2 : 5,
-        lineStyle:{width: dim ? 1.5 : 2.5, color: dim ? dimColor : color, opacity: dim ? 0.9 : 1},
-        itemStyle:{color: dim ? dimColor : color, opacity: 1},
-        emphasis:{focus:"series", lineStyle:{width:3}}};
+        lineStyle:{width:2.5, color},
+        itemStyle:{color},
+        // hovering one line emphasises it and greys every other one via the
+        // native blur state — ECharts restores them on mouseout, no JS
+        emphasis:{focus:"series", lineStyle:{width:3.5}},
+        blur:{lineStyle:{width:1.5, color:DIM_LINE, opacity:1},
+              itemStyle:{color:DIM_LINE}}};
     })
   };
 }
@@ -1433,8 +1432,7 @@ function renderOverviewRank(d, days){
 const AN = {
   kind:"skill", user:"__all__", item:"__all__", days:14,
   topN:5,            // 0 = 不限条数
-  highlight:null,    // name of the highlighted line, null = none
-  lineNames:[],      // series currently drawn, drives the highlight toggle
+  lineNames:[],      // series currently drawn, used by the hint line
   // null = follow the trend window; set by the table's own date inputs
   tableFrom:null, tableTo:null,
   sort:{key:"n", dir:"desc"}
@@ -1525,15 +1523,11 @@ function renderAnalysisTab(d){
 
   if (multi){
     const drawn = lines.slice(0, cap);
-    // a highlight only survives while its line is still drawn
-    if (AN.highlight && !drawn.some(x => x.name === AN.highlight)) AN.highlight = null;
     AN.lineNames = drawn.map(x => x.name);
     draw("c-an-daily", optMultiLine(labels,
-          drawn.map((x,i) => ({...x, color:seriesColor(i)})),
-          {highlight: AN.highlight}));
+          drawn.map((x,i) => ({...x, color:seriesColor(i)}))));
   } else {
     AN.lineNames = [];
-    AN.highlight = null;
     draw("c-an-daily", optLine(labels, selArr,
           {ma: selArr.length > 7 ? movingAvg(selArr, 7) : null,
            color: kind === "skill" ? CH.skill : CH.brand}));
@@ -1564,23 +1558,8 @@ function renderAnalysisTab(d){
   document.getElementById("an-users-card").hidden = user !== "__all__";
   if (user === "__all__")
     draw("c-an-users", optBarH(users, kind === "skill" ? CH.brand : CH.skill));
-  bindLineHighlight();
   syncTableRange(d);
   renderAnalysisTable(d, tableDays(d));
-}
-
-// Clicking a line emphasises it and fades the rest; clicking it again (or
-// clicking empty space) restores every line.
-function bindLineHighlight(){
-  const chart = chartCache["c-an-daily"];
-  if (!chart || chart.__hlBound) return;
-  chart.__hlBound = true;
-  chart.on("click", params => {
-    if (!AN.lineNames.length) return;           // single-line chart
-    if (params.componentType !== "series") return;
-    AN.highlight = AN.highlight === params.seriesName ? null : params.seriesName;
-    renderAnalysisTab(DATA);
-  });
 }
 
 // The table has its own date range: by default it follows the trend window,
@@ -2901,23 +2880,19 @@ renderAll(DATA);
 document.getElementById("an-user-sel").addEventListener("change", ev => {
   AN.user = ev.target.value;
   AN.item = "__all__";
-  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 document.getElementById("an-item-sel").addEventListener("change", ev => {
   AN.item = ev.target.value;
-  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 document.getElementById("an-days-sel").addEventListener("change", ev => {
   AN.days = parseInt(ev.target.value, 10) || 14;
-  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 document.getElementById("an-top-sel").addEventListener("change", ev => {
   AN.topN = parseInt(ev.target.value, 10);   // 0 = 全部
   if (isNaN(AN.topN)) AN.topN = 5;
-  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 // The table's own range. Both ends must be set before it takes effect.
@@ -2948,7 +2923,6 @@ document.getElementById("an-kind").addEventListener("click", ev => {
   if (!btn) return;
   AN.kind = btn.dataset.kind;
   AN.item = "__all__";
-  AN.highlight = null;
   AN.sort = {key:"n", dir:"desc"};
   document.querySelectorAll("#an-kind button").forEach(b => b.classList.toggle("on", b === btn));
   renderAnalysisTab(DATA);
