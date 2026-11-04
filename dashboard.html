@@ -63,6 +63,295 @@ border:none;background:transparent;cursor:pointer;padding:0;color:#9ca3af}
 button.pweye:hover{background:transparent;color:#3b7ddd}
 .pwwrap:focus-within .pweye{color:#3b7ddd}
 .pweye svg{display:block}
+
+/* ===== User management — DSH design language =========================
+   Tokens mirror the DeepSeek Harness web UI: neutral bluish surfaces,
+   .5px hairlines, layered radii, dark primary buttons, quiet secondary
+   labels. Scoped tokens stay on :root so dialogs and toasts (rendered in
+   the top layer, outside .um-page) inherit them too. */
+:root{
+  --dsw-alias-bg-base:#fff;
+  --dsw-alias-bg-layer-1:#fff;
+  --dsw-alias-bg-layer-2:#fff;
+  --dsw-alias-bg-layer-3:#fff;
+  --dsw-alias-bg-module-platform:#f9fafb;
+  --dsw-alias-bg-skeleton:#0000000a;
+  --dsw-alias-border-l1:#0000000a;
+  --dsw-alias-border-l2:#0000001a;
+  --dsw-alias-border-l3:#0000001f;
+  --dsw-alias-border-l4:#00000029;
+  --dsw-alias-label-primary:#0f1115;
+  --dsw-alias-label-secondary:#61666b;
+  --dsw-alias-label-tertiary:#81858c;
+  --dsw-alias-label-dimmed:#cfd3d6;
+  --dsw-alias-label-primary-foreground:#fff;
+  --dsw-alias-button-primary-fill:#0f1115;
+  --dsw-alias-button-primary-hover:#43454a;
+  --dsw-alias-button-primary-dimmed:#ebeef2;
+  --dsw-alias-interactive-bg-hover:#2631480f;
+  --dsw-alias-interactive-bg-active:#2631481a;
+  --dsw-alias-interactive-bg-hover-danger:#ec13130d;
+  --dsw-alias-state-error-primary:#ec1313;
+  --dsw-alias-state-success-primary:#22c55e;
+  --dsw-alias-state-warn-primary:#f59e0b;
+  --dsw-alias-state-business-primary:#4176e6;
+  --dsw-alias-bg-mask-1:#0000003d;
+  --dsw-alias-toast-bg:#353638;
+  --dsw-alias-toast-label:#fff;
+  --dsw-radius-xs:4px;
+  --dsw-radius-sm:8px;
+  --dsw-radius-md:12px;
+  --dsw-radius-lg:16px;
+  --dsw-radius-xl:20px;
+  --dsw-radius-panel:28px;
+  --dsw-elevation-prominent:0 0 0 .5px #0000000f,0 3px 8px #0000000a,0 0 20px #0000000d;
+  --dsw-elevation-panel:0 0 0 .5px #0000000f,0 3px 8px #00000008,0 0 16px #00000005;
+  --dsw-focus-ring-width:2px;
+  --dsw-focus-ring-color:#4176e680;
+}
+.um-page{display:flex;flex-direction:column;gap:18px;color:var(--dsw-alias-label-primary)}
+/* the um widgets set display:flex/inline-flex, which would otherwise beat the
+   UA [hidden]{display:none} rule and leave "hidden" fields visible */
+[hidden]{display:none !important}
+.um-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.um-head h2{font-size:20px;line-height:28px;font-weight:500;letter-spacing:-.01em}
+.um-head p{max-width:560px;margin-top:4px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
+.um-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.um-ico{display:inline-flex;align-items:center;justify-content:center;flex:none}
+.um-ico svg{display:block;width:16px;height:16px}
+.dsh-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:36px;padding:0 14px;border:0;border-radius:var(--dsw-radius-md);cursor:pointer;
+  font-family:inherit;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary);
+  background:transparent;white-space:nowrap;transition:background .12s ease,color .12s ease,border-color .12s ease}
+.dsh-btn:disabled{cursor:not-allowed;opacity:.4}
+.dsh-btn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);outline-offset:2px}
+.dsh-btn-primary{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
+.dsh-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
+.dsh-btn-outline{border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2)}
+.dsh-btn-outline:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-btn-ghost{color:var(--dsw-alias-label-secondary)}
+.dsh-btn-ghost:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-btn-danger{background:var(--dsw-alias-state-error-primary);color:#fff}
+.dsh-btn-danger:hover:not(:disabled){background:#c90f0f}
+.dsh-btn-sm{height:30px;padding:0 10px;border-radius:var(--dsw-radius-sm);font-size:13px;line-height:20px}
+.dsh-btn .um-spinner{display:none}
+.dsh-btn.is-busy .um-spinner{display:inline-flex}
+.dsh-btn.is-busy>.um-btn-label{opacity:.7}
+.um-spinner{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;
+  border-right-color:transparent;animation:um-spin .7s linear infinite}
+@keyframes um-spin{to{transform:rotate(360deg)}}
+.um-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.um-stat{display:flex;flex-direction:column;gap:1px;min-height:88px;padding:14px 18px;
+  border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-xl);
+  background:var(--dsw-alias-bg-layer-2)}
+.um-stat-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.um-stat-value{font-size:26px;line-height:34px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.um-stat-sub{margin-top:auto;padding-top:2px;font-size:11px;line-height:17px;color:var(--dsw-alias-label-tertiary)}
+.um-card{border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-xl);
+  background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.um-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 16px;
+  border-bottom:.5px solid var(--dsw-alias-border-l2)}
+.um-search{position:relative;display:flex;align-items:center;gap:7px;flex:1 1 220px;max-width:320px;
+  height:34px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l4);
+  border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-tertiary);transition:border-color .12s ease,box-shadow .12s ease}
+.um-search:focus-within{border-color:var(--dsw-alias-state-business-primary);
+  box-shadow:0 0 0 2px #4176e61f}
+.um-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:none;background:transparent;
+  font-family:inherit;font-size:13px;color:var(--dsw-alias-label-primary)}
+.um-search input::placeholder{color:var(--dsw-alias-label-dimmed)}
+.um-search input::-webkit-search-cancel-button{-webkit-appearance:none}
+.um-search-clear{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;
+  padding:0;border:0;border-radius:var(--dsw-radius-xs);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.um-search-clear:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.um-search-clear svg{width:12px;height:12px}
+.um-seg{display:flex;align-items:center;gap:2px;padding:3px;border-radius:10px;
+  background:var(--dsw-alias-bg-module-platform)}
+.um-seg button{height:28px;padding:0 11px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;
+  font-family:inherit;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.um-seg button:hover{color:var(--dsw-alias-label-primary)}
+.um-seg button.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);
+  font-weight:500;box-shadow:0 0 0 .5px var(--dsw-alias-border-l3)}
+.um-toolbar-meta{margin-left:auto;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.um-table-wrap{width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+table.um-table{width:100%;min-width:720px;border-collapse:collapse;font-size:13px}
+.um-table th{padding:9px 16px;border-bottom:.5px solid var(--dsw-alias-border-l2);
+  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);
+  font-size:12px;font-weight:500;line-height:18px;text-align:left;white-space:nowrap}
+.um-table td{padding:11px 16px;border-bottom:.5px solid var(--dsw-alias-border-l2);vertical-align:middle}
+.um-table tbody tr{transition:background .1s ease}
+.um-table tbody tr:hover{background:#fafbfc}
+.um-table tbody tr:last-child td{border-bottom:0}
+.um-user{display:flex;align-items:center;gap:10px;min-width:230px}
+.um-avatar{display:flex;align-items:center;justify-content:center;flex:none;width:34px;height:34px;
+  border:.5px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-bg-module-platform);
+  color:var(--dsw-alias-label-secondary);font-size:13px;font-weight:500;line-height:1;text-transform:uppercase}
+.um-avatar.is-admin{background:var(--dsw-alias-label-primary);border-color:transparent;color:#fff}
+.um-user-copy{min-width:0}
+.um-user-name{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:500;line-height:20px;
+  overflow-wrap:anywhere}
+.um-user-sub{margin-top:1px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:320px}
+.um-user-sub b{font-weight:400;color:var(--dsw-alias-label-secondary)}
+.um-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;
+  font-size:11px;font-weight:500;line-height:17px;white-space:nowrap}
+.um-tag[data-tone="admin"]{background:var(--dsw-alias-label-primary);color:#fff}
+.um-tag[data-tone="user"]{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary)}
+.um-tag[data-tone="self"]{border:.5px solid var(--dsw-alias-border-l4);color:var(--dsw-alias-label-tertiary)}
+.um-tag[data-tone="collected"]{background:#4176e60f;color:#3b6ac2}
+.um-email{display:inline-flex;align-items:center;gap:6px;max-width:260px;font-size:13px;line-height:20px;
+  color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.um-email.is-empty{color:var(--dsw-alias-label-dimmed)}
+.um-email-note{margin-top:2px;font-size:11px;line-height:17px;color:var(--dsw-alias-label-tertiary)}
+.um-date{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.um-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;white-space:nowrap}
+.um-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;
+  border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.um-icon-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.um-icon-btn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);outline-offset:1px}
+.um-icon-btn svg{width:16px;height:16px}
+.um-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  padding:56px 24px;text-align:center}
+.um-empty-icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;
+  border-radius:50%;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-tertiary)}
+.um-empty-icon svg{width:20px;height:20px}
+.um-empty-title{font-size:14px;font-weight:500;line-height:22px}
+.um-empty-desc{max-width:360px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.um-loading{padding:28px 20px}
+.um-skeleton-row{display:flex;align-items:center;gap:12px;padding:11px 0}
+.um-skeleton{background:linear-gradient(90deg,var(--dsw-alias-bg-skeleton) 25%,#00000005 37%,var(--dsw-alias-bg-skeleton) 63%);
+  background-size:400% 100%;border-radius:var(--dsw-radius-sm);animation:um-shimmer 1.4s ease infinite}
+@keyframes um-shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.um-skeleton.avatar{width:34px;height:34px;border-radius:50%;flex:none}
+.um-skeleton.line{height:12px}
+.um-error-box{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:16px;padding:14px 16px;
+  border:.5px solid #ec131340;border-radius:var(--dsw-radius-lg);background:#ec131308}
+.um-error-box p{font-size:13px;line-height:20px;color:var(--dsw-alias-state-error-primary)}
+/* row menu + report menu */
+.um-menu-wrap{position:relative}
+.um-menu{position:fixed;z-index:1200;display:flex;flex-direction:column;min-width:180px;padding:4px;
+  border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);
+  background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-prominent);
+  animation:um-menu-in .12s ease}
+.um-menu[hidden]{display:none}
+.um-menu.um-menu-inline{position:absolute;top:calc(100% + 6px);right:0;left:auto}
+.um-dialog-desc[hidden]{display:none}
+.um-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 9px;border:0;
+  border-radius:var(--dsw-radius-sm);background:transparent;font-family:inherit;font-size:13px;
+  line-height:20px;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer}
+.um-menu button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.um-menu button.danger{color:var(--dsw-alias-state-error-primary)}
+.um-menu button.danger:hover{background:var(--dsw-alias-interactive-bg-hover-danger)}
+.um-menu button:disabled{opacity:.4;cursor:not-allowed;background:transparent}
+.um-menu button svg{width:15px;height:15px;flex:none;opacity:.75}
+.um-menu-sep{height:.5px;margin:4px 2px;background:var(--dsw-alias-border-l2)}
+.um-menu-head{padding:5px 9px 6px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes um-menu-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+/* toasts */
+.um-toasts{position:fixed;top:24px;left:50%;z-index:1400;display:flex;flex-direction:column;
+  align-items:center;gap:8px;transform:translateX(-50%);pointer-events:none}
+.um-toast{display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100vw - 32px));
+  padding:10px 14px;border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-toast-bg);
+  color:var(--dsw-alias-toast-label);font-size:13px;line-height:20px;
+  box-shadow:0 8px 24px #00000026;pointer-events:auto;animation:um-toast-in .18s ease}
+.um-toast.is-leaving{animation:um-toast-out .16s ease forwards}
+.um-toast svg{width:16px;height:16px;flex:none}
+.um-toast.success svg{color:#4ed17e}
+.um-toast.error svg{color:#f25a5a}
+.um-toast.info svg{color:#7aaaff}
+@keyframes um-toast-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes um-toast-out{to{opacity:0;transform:translateY(-6px)}}
+/* dialogs */
+dialog.um-dialog{width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 48px);margin:auto;padding:0;
+  border:0;border-radius:var(--dsw-radius-panel);background:var(--dsw-alias-bg-layer-2);
+  color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-elevation-prominent);
+  animation:um-dialog-in .18s ease}
+dialog.um-dialog::backdrop{background:var(--dsw-alias-bg-mask-1)}
+dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
+@keyframes um-dialog-in{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
+.um-dialog-inner{display:flex;flex-direction:column;max-height:calc(100dvh - 48px)}
+.um-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:22px 16px 8px 24px}
+.um-dialog-title{font-size:16px;font-weight:500;line-height:24px}
+.um-dialog-desc{margin-top:4px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
+.um-dialog-close{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;
+  padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;
+  color:var(--dsw-alias-label-secondary);cursor:pointer}
+.um-dialog-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.um-dialog-close svg{width:16px;height:16px}
+.um-dialog-body{display:flex;flex-direction:column;gap:15px;min-width:0;overflow-y:auto;
+  padding:16px 24px 0}
+.um-dialog-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:22px 24px 24px}
+.um-dialog-foot .dsh-btn{min-width:72px}
+.um-field{display:flex;flex-direction:column;gap:6px}
+.um-label{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:500;line-height:20px}
+.um-required{color:var(--dsw-alias-state-error-primary)}
+.um-hint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.um-input{box-sizing:border-box;width:100%;height:38px;padding:0 12px;border:.5px solid var(--dsw-alias-border-l4);
+  border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);
+  font-family:inherit;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary)}
+.um-input::placeholder{color:var(--dsw-alias-label-dimmed)}
+.um-input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary);
+  box-shadow:0 0 0 2px #4176e61f}
+.um-input[aria-invalid="true"]{border-color:var(--dsw-alias-state-error-primary)}
+.um-input:disabled{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-module-platform);cursor:not-allowed}
+.um-pw{position:relative;display:flex}
+.um-pw .um-input{flex:1;padding-right:42px}
+.um-pw button{position:absolute;top:0;right:0;display:flex;align-items:center;justify-content:center;
+  width:40px;height:100%;padding:0;border:0;border-radius:var(--dsw-radius-md);background:transparent;
+  color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.um-pw button:hover{color:var(--dsw-alias-label-primary)}
+.um-pw button svg{width:16px;height:16px}
+.um-error{font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary)}
+.um-error:empty{display:none}
+.um-form-error{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--dsw-radius-md);
+  background:#ec13130a;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}
+.um-form-error[hidden]{display:none}
+.um-form-error svg{width:15px;height:15px;flex:none;margin-top:1px}
+.um-role{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.um-role label{position:relative;display:flex;flex-direction:column;gap:2px;padding:11px 12px;
+  border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);cursor:pointer}
+.um-role label:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.um-role input{position:absolute;opacity:0;pointer-events:none}
+.um-role label:has(input:checked){border-color:var(--dsw-alias-label-primary);
+  background:var(--dsw-alias-bg-module-platform);box-shadow:inset 0 0 0 .5px var(--dsw-alias-label-primary)}
+.um-role label:has(input:focus-visible){outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);outline-offset:2px}
+.um-role label:has(input:disabled){cursor:not-allowed;opacity:.55}
+.um-role .t{font-size:13px;font-weight:500;line-height:20px}
+.um-role .d{font-size:11px;line-height:17px;color:var(--dsw-alias-label-tertiary)}
+.um-identity{display:flex;align-items:center;gap:10px;padding:12px;border-radius:var(--dsw-radius-lg);
+  background:var(--dsw-alias-bg-module-platform)}
+.um-identity .um-avatar{background:#fff}
+.um-identity .um-avatar.is-admin{background:var(--dsw-alias-label-primary)}
+.um-identity-copy{min-width:0}
+.um-identity-name{font-size:14px;font-weight:500;line-height:20px;overflow-wrap:anywhere}
+.um-identity-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.um-warning{display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:22px;
+  color:var(--dsw-alias-label-secondary)}
+.um-warning-icon{display:flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;
+  border-radius:50%;background:#ec13130f;color:var(--dsw-alias-state-error-primary)}
+.um-warning-icon svg{width:17px;height:17px}
+.um-warning p{margin:0}
+.um-confirm-detail{margin-top:8px;padding:10px 12px;border-radius:var(--dsw-radius-md);
+  background:var(--dsw-alias-bg-module-platform);font-size:12px;line-height:18px;
+  color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.um-confirm-detail[hidden]{display:none}
+.um-ack{display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:20px;
+  color:var(--dsw-alias-label-primary);cursor:pointer}
+.um-ack[hidden]{display:none}
+.um-ack input{flex:none;width:16px;height:16px;margin:2px 0 0;accent-color:var(--dsw-alias-label-primary);cursor:pointer}
+.um-ack input:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);outline-offset:2px}
+@media(max-width:760px){
+  .um-stats{grid-template-columns:1fr 1fr}
+  .um-head{align-items:flex-start}
+  .um-head-actions{width:100%}
+  .um-toolbar-meta{display:none}
+  .um-search{max-width:none;flex-basis:100%}
+  .um-role{grid-template-columns:1fr}
+  dialog.um-dialog{border-radius:var(--dsw-radius-xl)}
+}
 </style>
 </head>
 <body>
@@ -87,6 +376,7 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
     <div class="tab" data-tab="tool">Tool 分析</div>
     <div class="tab" data-tab="skill">Skill 分析</div>
     <div class="tab" data-tab="user" id="tab-user">用户分析</div>
+    <div class="tab" data-tab="manage" id="tab-manage" style="display:none">用户管理</div>
     <div class="tab" data-tab="account">账号</div>
   </div>
 
@@ -160,6 +450,69 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
     </div>
   </div>
 
+  <div class="panel" id="p-manage">
+    <div class="um-page">
+      <div class="um-head">
+        <div>
+          <h2>用户管理</h2>
+          <p>管理登录账号、角色和报告邮箱。账号名与采集数据中的 Devin 邮箱或本机账号一致时，会自动关联使用记录。</p>
+        </div>
+        <div class="um-head-actions">
+          <div class="um-menu-wrap">
+            <button type="button" class="dsh-btn dsh-btn-outline" id="report-btn" aria-haspopup="menu" aria-expanded="false">
+              <span class="um-ico" data-icon="send"></span><span class="um-btn-label">发送报告</span>
+              <span class="um-ico" data-icon="chevron"></span>
+            </button>
+            <div class="um-menu um-menu-inline" id="report-menu" role="menu" hidden>
+              <button type="button" role="menuitem" data-report="all"><span class="um-ico" data-icon="users"></span>发送全部用户报告</button>
+              <button type="button" role="menuitem" data-report="team"><span class="um-ico" data-icon="send"></span>发送团队汇总报告</button>
+            </div>
+          </div>
+          <button type="button" class="dsh-btn dsh-btn-primary" id="nu-add">
+            <span class="um-ico" data-icon="plus"></span><span class="um-btn-label">添加用户</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="um-stats">
+        <div class="um-stat">
+          <span class="um-stat-label">账号总数</span>
+          <span class="um-stat-value" id="um-count-all">–</span>
+          <span class="um-stat-sub" id="um-count-all-sub">加载中…</span>
+        </div>
+        <div class="um-stat">
+          <span class="um-stat-label">管理员</span>
+          <span class="um-stat-value" id="um-count-admins">–</span>
+          <span class="um-stat-sub">可查看全部数据并管理账号</span>
+        </div>
+        <div class="um-stat">
+          <span class="um-stat-label">已配置报告邮箱</span>
+          <span class="um-stat-value" id="um-count-email">–</span>
+          <span class="um-stat-sub" id="um-count-email-sub">未配置时回退到采集邮箱</span>
+        </div>
+      </div>
+
+      <div class="um-card">
+        <div class="um-toolbar">
+          <label class="um-search">
+            <span class="um-ico" data-icon="search"></span>
+            <input id="um-search" type="search" placeholder="搜索用户名或邮箱" autocomplete="off" aria-label="搜索用户">
+            <button type="button" class="um-search-clear" id="um-search-clear" aria-label="清除搜索" hidden>
+              <span class="um-ico" data-icon="close"></span>
+            </button>
+          </label>
+          <div class="um-seg" id="um-role-filter" role="group" aria-label="按角色筛选">
+            <button type="button" class="on" data-role="all">全部</button>
+            <button type="button" data-role="admin">管理员</button>
+            <button type="button" data-role="user">普通用户</button>
+          </div>
+          <span class="um-toolbar-meta" id="um-count">加载中…</span>
+        </div>
+        <div id="t-admin" class="um-table-wrap" aria-live="polite"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="panel" id="p-account">
     <div class="card"><div class="ttl">修改我的密码</div>
       <div class="toolbar">
@@ -211,20 +564,156 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
         <span class="muted" id="sched-last"></span>
       </div>
     </div>
-    <div class="card" id="admin-card" style="display:none"><div class="ttl">用户管理</div>
-      <div class="toolbar">
-        <input id="nu-name" placeholder="用户名（需与数据中的人一致：Devin 邮箱或本机账号名）" size="42">
-        <span class="pwwrap"><input id="nu-pass" type="password" placeholder="初始密码（至少 8 位）" size="20" autocomplete="new-password"><button type="button" class="pweye" id="eye-nu-pass" tabindex="-1"></button></span>
-        <select id="nu-role"><option value="user">普通用户</option><option value="admin">管理员</option></select>
-        <button class="primary" id="nu-add">添加用户</button>
-        <button id="send-all">全部发送报告</button>
-        <button id="send-team">发送团队报告</button>
-        <span class="muted" id="admin-msg"></span>
-      </div>
-      <div id="t-admin"></div>
-    </div>
   </div>
 </div>
+
+<dialog class="um-dialog" id="dlg-user" aria-labelledby="dlg-user-title">
+  <form class="um-dialog-inner" id="form-user" novalidate>
+    <div class="um-dialog-head">
+      <div>
+        <h3 class="um-dialog-title" id="dlg-user-title">添加用户</h3>
+        <p class="um-dialog-desc" id="dlg-user-desc">创建一个本地登录账号，创建后可继续配置报告邮箱。</p>
+      </div>
+      <button type="button" class="um-dialog-close" data-close aria-label="关闭">
+        <span class="um-ico" data-icon="close"></span>
+      </button>
+    </div>
+    <div class="um-dialog-body">
+      <div class="um-identity" id="dlg-user-identity" hidden>
+        <span class="um-avatar" id="dlg-user-avatar">A</span>
+        <div class="um-identity-copy">
+          <div class="um-identity-name" id="dlg-user-name">—</div>
+          <div class="um-identity-sub" id="dlg-user-meta">—</div>
+        </div>
+      </div>
+      <label class="um-field">
+        <span class="um-label">用户名 <span class="um-required">*</span></span>
+        <input class="um-input" id="f-user-name" maxlength="64" autocomplete="off" placeholder="Devin 邮箱或本机账号名">
+        <span class="um-hint" id="f-user-name-hint">需与采集数据中的人一致：Devin 邮箱或本机账号名。</span>
+        <span class="um-error" id="err-user-name"></span>
+      </label>
+      <div class="um-field" id="f-email-field" hidden>
+        <label class="um-label" for="f-user-email">报告邮箱</label>
+        <input class="um-input" id="f-user-email" type="email" maxlength="254" autocomplete="off" placeholder="name@company.com">
+        <span class="um-hint" id="f-email-hint">留空则使用采集数据中的 Devin 邮箱。</span>
+        <span class="um-error" id="err-user-email"></span>
+      </div>
+      <div class="um-field" id="f-pass-field">
+        <label class="um-label" for="f-user-pass">初始密码 <span class="um-required">*</span></label>
+        <span class="um-pw">
+          <input class="um-input" id="f-user-pass" type="password" autocomplete="new-password" placeholder="至少 8 位">
+          <button type="button" data-eye="f-user-pass" aria-label="显示密码"><span class="um-ico" data-icon="eye"></span></button>
+        </span>
+        <span class="um-hint">至少 8 位；用户登录后可自行修改。</span>
+        <span class="um-error" id="err-user-pass"></span>
+      </div>
+      <div class="um-field">
+        <span class="um-label">角色</span>
+        <div class="um-role" id="f-user-role">
+          <label><input type="radio" name="f-user-role" value="user" checked><span class="t">普通用户</span><span class="d">只能查看自己的数据</span></label>
+          <label><input type="radio" name="f-user-role" value="admin"><span class="t">管理员</span><span class="d">管理账号与全部数据</span></label>
+        </div>
+        <span class="um-hint" id="f-user-role-hint" hidden>不能修改自己的角色。</span>
+      </div>
+      <div class="um-form-error" id="err-user-form" hidden>
+        <span class="um-ico" data-icon="alert"></span><span id="err-user-form-text"></span>
+      </div>
+    </div>
+    <div class="um-dialog-foot">
+      <button type="button" class="dsh-btn dsh-btn-ghost" data-close>取消</button>
+      <button type="submit" class="dsh-btn dsh-btn-primary" id="f-user-save">
+        <span class="um-spinner"></span><span class="um-btn-label">添加用户</span>
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="um-dialog" id="dlg-password" aria-labelledby="dlg-password-title">
+  <form class="um-dialog-inner" id="form-password" novalidate>
+    <div class="um-dialog-head">
+      <div>
+        <h3 class="um-dialog-title" id="dlg-password-title">重置密码</h3>
+        <p class="um-dialog-desc">为该账号设置一个新密码。</p>
+      </div>
+      <button type="button" class="um-dialog-close" data-close aria-label="关闭">
+        <span class="um-ico" data-icon="close"></span>
+      </button>
+    </div>
+    <div class="um-dialog-body">
+      <div class="um-identity">
+        <span class="um-avatar" id="pw-user-avatar">A</span>
+        <div class="um-identity-copy">
+          <div class="um-identity-name" id="pw-user-name">—</div>
+          <div class="um-identity-sub">重置后旧密码立即失效</div>
+        </div>
+      </div>
+      <div class="um-field">
+        <label class="um-label" for="f-pw-new">新密码 <span class="um-required">*</span></label>
+        <span class="um-pw">
+          <input class="um-input" id="f-pw-new" type="password" autocomplete="new-password" placeholder="至少 8 位">
+          <button type="button" data-eye="f-pw-new" aria-label="显示密码"><span class="um-ico" data-icon="eye"></span></button>
+        </span>
+        <span class="um-error" id="err-pw-new"></span>
+      </div>
+      <div class="um-field">
+        <label class="um-label" for="f-pw-confirm">确认新密码 <span class="um-required">*</span></label>
+        <span class="um-pw">
+          <input class="um-input" id="f-pw-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码">
+          <button type="button" data-eye="f-pw-confirm" aria-label="显示密码"><span class="um-ico" data-icon="eye"></span></button>
+        </span>
+        <span class="um-error" id="err-pw-confirm"></span>
+      </div>
+      <div class="um-form-error" id="err-pw-form" hidden>
+        <span class="um-ico" data-icon="alert"></span><span id="err-pw-form-text"></span>
+      </div>
+    </div>
+    <div class="um-dialog-foot">
+      <button type="button" class="dsh-btn dsh-btn-ghost" data-close>取消</button>
+      <button type="submit" class="dsh-btn dsh-btn-primary" id="f-pw-save">
+        <span class="um-spinner"></span><span class="um-btn-label">重置密码</span>
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="um-dialog" id="dlg-confirm" aria-labelledby="cf-title">
+  <div class="um-dialog-inner">
+    <div class="um-dialog-head">
+      <div>
+        <h3 class="um-dialog-title" id="cf-title">确认操作</h3>
+        <p class="um-dialog-desc" id="cf-desc"></p>
+      </div>
+      <button type="button" class="um-dialog-close" data-close aria-label="关闭">
+        <span class="um-ico" data-icon="close"></span>
+      </button>
+    </div>
+    <div class="um-dialog-body">
+      <div class="um-warning">
+        <span class="um-warning-icon" id="cf-icon"><span class="um-ico" data-icon="alert"></span></span>
+        <div>
+          <p id="cf-message"></p>
+          <div class="um-confirm-detail" id="cf-detail" hidden></div>
+        </div>
+      </div>
+      <label class="um-ack" id="cf-ack-wrap" hidden>
+        <input type="checkbox" id="cf-ack">
+        <span id="cf-ack-text">我了解此操作不可撤销。</span>
+      </label>
+      <div class="um-form-error" id="cf-error" hidden>
+        <span class="um-ico" data-icon="alert"></span><span id="cf-error-text"></span>
+      </div>
+    </div>
+    <div class="um-dialog-foot">
+      <button type="button" class="dsh-btn dsh-btn-ghost" data-close>取消</button>
+      <button type="button" class="dsh-btn dsh-btn-primary" id="cf-confirm">
+        <span class="um-spinner"></span><span class="um-btn-label">确认</span>
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<div class="um-menu" id="um-menu" role="menu" hidden></div>
+<div class="um-toasts" id="um-toasts" aria-live="polite"></div>
 
 <script>
 let DATA = __DATA__;
@@ -325,10 +814,40 @@ function tbl(rows, cols){
 
 const EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
 const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>';
-const PEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>';
 
-function bindEye(btnId, inputId){
-  const btn = document.getElementById(btnId), inp = document.getElementById(inputId);
+const ICONS = {
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>',
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  eye: EYE,
+  eyeOff: EYE_OFF,
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/></svg>'
+};
+
+function ico(name){
+  return '<span class="um-ico">' + (ICONS[name] || "") + '</span>';
+}
+function mountIcons(root){
+  (root || document).querySelectorAll("[data-icon]").forEach(el => {
+    if (el.dataset.iconReady) return;
+    const svg = ICONS[el.dataset.icon];
+    if (svg){ el.innerHTML = svg; el.dataset.iconReady = "1"; }
+  });
+}
+function bindEyeButton(btn, inp){
+  if (!btn || !inp) return;
   btn.innerHTML = EYE;
   btn.title = "显示密码";
   btn.setAttribute("aria-label", "显示密码");
@@ -340,9 +859,13 @@ function bindEye(btnId, inputId){
     btn.setAttribute("aria-label", btn.title);
   };
 }
+function bindEye(btnId, inputId){
+  bindEyeButton(document.getElementById(btnId), document.getElementById(inputId));
+}
 bindEye("eye-pw-old", "pw-old");
 bindEye("eye-pw-new", "pw-new");
-bindEye("eye-nu-pass", "nu-pass");
+document.querySelectorAll("[data-eye]").forEach(btn => bindEyeButton(btn, document.getElementById(btn.dataset.eye)));
+mountIcons();
 
 function knownUsers(d){
   return Object.entries(d.by_user || {}).filter(u => u[0] !== "<unknown>").sort((a,b) => b[1] - a[1]);
@@ -532,88 +1055,734 @@ async function api(url, body){
   return r;
 }
 
-function adminMsg(text, ok){
-  const el = document.getElementById("admin-msg");
-  el.textContent = text;
-  el.style.color = ok ? "#1d9e75" : "#d4537e";
-}
-
 async function errDetail(r){
   try { return (await r.json()).detail || "操作失败"; } catch { return "操作失败"; }
 }
 
-async function loadUsers(){
-  const r = await fetch("/admin/users");
-  if (r.status === 401){ window.location.href = "/login"; return; }
-  if (!r.ok) return;
-  const d = await r.json();
-  document.getElementById("t-admin").innerHTML =
-    "<table><thead><tr><th>用户名</th><th>角色</th><th>邮箱</th><th>创建时间</th><th>操作</th></tr></thead><tbody>" +
-    d.users.map(u => {
-      const isSelf = u.username === USER.name;
-      const pen = `<a href="#" class="op rename-pen" data-op="rename" data-u="${esc(u.username)}" title="改名" aria-label="改名">${PEN}</a>`;
-      const ops = [];
-      ops.push(`<a href="#" class="op" data-op="email" data-u="${esc(u.username)}" data-email="${esc(u.email || "")}" style="color:#3b7ddd;text-decoration:none">邮箱</a>`);
-      ops.push(`<a href="#" class="op" data-op="sendrep" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">发报告</a>`);
-      ops.push(`<a href="#" class="op" data-op="pw" data-u="${esc(u.username)}" style="color:#3b7ddd;text-decoration:none">重置密码</a>`);
-      if (!isSelf) ops.push(`<a href="#" class="op" data-op="role" data-u="${esc(u.username)}" data-role="${u.role === "admin" ? "user" : "admin"}" style="color:#3b7ddd;text-decoration:none">${u.role === "admin" ? "设为普通用户" : "设为管理员"}</a>`);
-      if (!isSelf) ops.push(`<a href="#" class="op" data-op="del" data-u="${esc(u.username)}" style="color:#d4537e;text-decoration:none">删除</a>`);
-      return `<tr><td>${esc(u.username)}${isSelf ? ' <span class="pill">我</span>' : ""}${pen}</td>` +
-        `<td>${u.role === "admin" ? "管理员" : "普通用户"}</td>` +
-        `<td class="muted">${esc(u.email || "-")}${u.email || !u.collected_email ? "" :
-          `<div style="color:#9ca3af;font-size:11px">采集到的 Devin 邮箱: ${esc(u.collected_email)}</div>`}</td>` +
-        `<td class="muted">${esc(u.created_at)}</td>` +
-        `<td>${ops.map(o => `<span class="opw">${o}</span>`).join("")}</td></tr>`;
-    }).join("") + "</tbody></table>";
+// ---------------------------------------------------------------------------
+// User management — DSH-style table, dialogs and toast feedback.
+// All mutations still go through the existing /admin/users endpoints; only the
+// presentation layer changed. Confirmation/editing never uses prompt/confirm.
+// ---------------------------------------------------------------------------
+const UM_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const UM = {
+  users: [], loaded: false, loading: false, error: "",
+  query: "", role: "all",
+  self: (USER && USER.name) || "",
+  editing: null, resetting: null, confirmAction: null,
+  menuUser: null, menuAnchor: null, lastFocus: null
+};
+
+function fmtUserDate(iso){
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function userInitials(name){
+  const s = String(name || "?").trim();
+  return s ? Array.from(s)[0].toUpperCase() : "?";
+}
+function findUser(name){
+  return UM.users.find(u => u.username === name) || null;
+}
+function userRecipient(u){
+  return (u && (u.email || u.collected_email)) || "";
+}
+function setBusy(btn, busy){
+  if (!btn) return;
+  btn.disabled = !!busy;
+  btn.classList.toggle("is-busy", !!busy);
+}
+function markField(inputId, errId, msg){
+  const inp = document.getElementById(inputId), err = document.getElementById(errId);
+  if (inp){
+    if (msg) inp.setAttribute("aria-invalid", "true");
+    else inp.removeAttribute("aria-invalid");
+  }
+  if (err) err.textContent = msg || "";
+}
+function showFormError(boxId, textId, msg){
+  const box = document.getElementById(boxId), text = document.getElementById(textId);
+  if (!box) return;
+  box.hidden = !msg;
+  if (text) text.textContent = msg || "";
+}
+function clearUserFormErrors(){
+  markField("f-user-name", "err-user-name", "");
+  markField("f-user-email", "err-user-email", "");
+  markField("f-user-pass", "err-user-pass", "");
+  showFormError("err-user-form", "err-user-form-text", "");
+}
+function clearPasswordErrors(){
+  markField("f-pw-new", "err-pw-new", "");
+  markField("f-pw-confirm", "err-pw-confirm", "");
+  showFormError("err-pw-form", "err-pw-form-text", "");
+}
+function resetEyes(scope){
+  scope.querySelectorAll("[data-eye]").forEach(btn => {
+    const inp = document.getElementById(btn.dataset.eye);
+    if (inp) inp.type = "password";
+    btn.innerHTML = EYE;
+    btn.title = "显示密码";
+    btn.setAttribute("aria-label", "显示密码");
+  });
+}
+function toast(message, tone, ttl){
+  const wrap = document.getElementById("um-toasts");
+  if (!wrap) return;
+  const kind = tone || "success";
+  const icon = kind === "error" ? ICONS.alert : kind === "info" ? ICONS.info : ICONS.check;
+  const el = document.createElement("div");
+  el.className = "um-toast " + kind;
+  el.innerHTML = icon + "<span>" + esc(message) + "</span>";
+  wrap.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("is-leaving");
+    setTimeout(() => el.remove(), 180);
+  }, ttl || (kind === "error" ? 6500 : 3600));
 }
 
-document.addEventListener("click", async (ev) => {
-  const a = ev.target.closest(".op");
-  if (!a) return;
-  ev.preventDefault();
-  const u = a.dataset.u, op = a.dataset.op;
-  let url, body;
-  if (op === "pw"){
-    const pw = prompt(`为 ${u} 设置新密码（至少 8 位）：`);
-    if (!pw) return;
-    url = `/admin/users/${encodeURIComponent(u)}/password`; body = { password: pw };
-  } else if (op === "role"){
-    url = `/admin/users/${encodeURIComponent(u)}/role`; body = { role: a.dataset.role };
-  } else if (op === "rename"){
-    const nn = prompt(`将用户 ${u} 改名为：（其历史调用记录会一并迁移）`);
-    if (!nn || nn.trim() === u) return;
-    url = `/admin/users/${encodeURIComponent(u)}/rename`; body = { username: nn };
-  } else if (op === "email"){
-    const em = prompt(`为 ${u} 配置接收报告的 Outlook 邮箱：`, a.dataset.email || "");
-    if (em === null || !em.trim()) return;
-    url = `/admin/users/${encodeURIComponent(u)}/email`; body = { email: em.trim() };
-  } else if (op === "sendrep"){
-    if (!confirm(`将 ${u} 的统计报告（最近 7 天窗口）发送到其配置的邮箱？`)) return;
-    url = `/admin/users/${encodeURIComponent(u)}/send_report`; body = undefined;
-  } else {
-    if (!confirm(`确定删除用户 ${u}？账号不可恢复，历史调用记录保留。`)) return;
-    url = `/admin/users/${encodeURIComponent(u)}/delete`; body = undefined;
+async function umRequest(url, options){
+  const r = await fetch(url, options);
+  if (r.status === 401){ window.location.href = "/login"; throw new Error("登录已过期"); }
+  let data = null;
+  try { data = await r.json(); } catch (e) { data = null; }
+  if (!r.ok){
+    const detail = data && data.detail;
+    let msg = `请求失败（${r.status}）`;
+    if (typeof detail === "string") msg = detail;
+    else if (Array.isArray(detail)){
+      msg = detail.map(x => (x && x.msg) || "").filter(Boolean).join("；") || msg;
+    }
+    throw new Error(msg);
   }
-  const r = await api(url, body);
-  adminMsg(r.ok ? "操作成功" : await errDetail(r), r.ok);
-  if (r.ok){
-    loadUsers();
-    if (op === "rename" && u === USER.name) window.location.reload();
+  return data || {};
+}
+function umPost(url, body){
+  return umRequest(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+}
+
+function renderUserStats(){
+  const total = UM.users.length;
+  const admins = UM.users.filter(u => u.role === "admin").length;
+  const emails = UM.users.filter(u => u.email).length;
+  const fallbacks = UM.users.filter(u => !u.email && u.collected_email).length;
+  const failed = !!UM.error && !UM.loaded;
+  document.getElementById("um-count-all").textContent = failed ? "–" : total;
+  document.getElementById("um-count-admins").textContent = failed ? "–" : admins;
+  document.getElementById("um-count-email").textContent = failed ? "–" : emails;
+  const latest = UM.users.map(u => u.created_at).filter(Boolean).sort().slice(-1)[0];
+  document.getElementById("um-count-all-sub").textContent =
+    failed ? "数据加载失败" : (latest ? `最近创建 ${fmtUserDate(latest)}` : "还没有创建账号");
+  document.getElementById("um-count-email-sub").textContent =
+    failed ? "未配置时回退到采集邮箱" :
+    (fallbacks ? `另有 ${fallbacks} 位使用采集邮箱` : "未配置时回退到采集邮箱");
+}
+
+function filteredUsers(){
+  const q = UM.query.trim().toLowerCase();
+  return UM.users.filter(u => {
+    if (UM.role !== "all" && u.role !== UM.role) return false;
+    if (!q) return true;
+    return [u.username, u.email, u.collected_email]
+      .some(v => String(v || "").toLowerCase().includes(q));
+  }).sort((a, b) => String(a.username).localeCompare(String(b.username), "zh-CN", { sensitivity: "base" }));
+}
+
+function userSkeleton(){
+  let h = '<div class="um-loading">';
+  for (let i = 0; i < 4; i++){
+    h += '<div class="um-skeleton-row">' +
+      '<span class="um-skeleton avatar"></span>' +
+      `<div style="flex:1;display:flex;flex-direction:column;gap:7px">` +
+        `<span class="um-skeleton line" style="width:${150 + i * 18}px"></span>` +
+        `<span class="um-skeleton line" style="width:${90 + i * 12}px"></span>` +
+      '</div>' +
+      '<span class="um-skeleton line" style="width:72px"></span>' +
+      '<span class="um-skeleton line" style="width:130px"></span>' +
+      '<span class="um-skeleton line" style="width:54px"></span>' +
+    '</div>';
+  }
+  return h + '</div>';
+}
+function emptyState(title, desc, actionHtml){
+  return '<div class="um-empty">' +
+    '<span class="um-empty-icon">' + ICONS.inbox + '</span>' +
+    '<div class="um-empty-title">' + esc(title) + '</div>' +
+    '<div class="um-empty-desc">' + esc(desc) + '</div>' +
+    (actionHtml || '') +
+  '</div>';
+}
+function userRowHtml(u){
+  const self = u.username === UM.self;
+  const admin = u.role === "admin";
+  const email = u.email || "", collected = u.collected_email || "";
+  let emailHtml;
+  if (email){
+    emailHtml = '<span class="um-email">' + esc(email) + '</span>';
+    if (collected && collected !== email)
+      emailHtml += '<div class="um-email-note">采集邮箱：' + esc(collected) + '</div>';
+  } else if (collected){
+    emailHtml = '<span class="um-email">' + esc(collected) + '</span>' +
+      '<div class="um-email-note"><span class="um-tag" data-tone="collected">采集邮箱</span></div>';
+  } else {
+    emailHtml = '<span class="um-email is-empty">未配置</span>';
+  }
+  const sub = self ? "当前登录账号" : (collected ? "已关联采集数据" : "暂无采集数据");
+  return '<tr>' +
+    '<td><div class="um-user">' +
+      `<span class="um-avatar${admin ? " is-admin" : ""}">${esc(userInitials(u.username))}</span>` +
+      '<div class="um-user-copy">' +
+        '<div class="um-user-name"><span>' + esc(u.username) + '</span>' +
+          (self ? '<span class="um-tag" data-tone="self">我</span>' : '') +
+        '</div>' +
+        '<div class="um-user-sub">' + sub + '</div>' +
+      '</div>' +
+    '</div></td>' +
+    '<td><span class="um-tag" data-tone="' + (admin ? 'admin' : 'user') + '">' +
+      (admin ? '管理员' : '普通用户') + '</span></td>' +
+    '<td>' + emailHtml + '</td>' +
+    '<td class="um-date">' + esc(fmtUserDate(u.created_at)) + '</td>' +
+    '<td><div class="um-actions">' +
+      `<button type="button" class="dsh-btn dsh-btn-outline dsh-btn-sm" data-act="edit" data-user="${esc(u.username)}">编辑</button>` +
+      `<button type="button" class="um-icon-btn" data-act="more" data-user="${esc(u.username)}" ` +
+        'aria-label="更多操作" aria-haspopup="menu" title="更多操作">' + ICONS.more + '</button>' +
+    '</div></td>' +
+  '</tr>';
+}
+function renderUsers(){
+  const box = document.getElementById("t-admin");
+  const meta = document.getElementById("um-count");
+  const clearBtn = document.getElementById("um-search-clear");
+  if (clearBtn) clearBtn.hidden = !UM.query;
+  if (UM.loading && !UM.loaded){
+    meta.textContent = "加载中…";
+    box.innerHTML = userSkeleton();
+    return;
+  }
+  if (UM.error){
+    meta.textContent = "加载失败";
+    box.innerHTML = '<div class="um-error-box"><p>' + esc(UM.error) + '</p>' +
+      '<button type="button" class="dsh-btn dsh-btn-outline dsh-btn-sm" data-act="retry">' +
+      ico("refresh") + '<span class="um-btn-label">重试</span></button></div>';
+    return;
+  }
+  const list = filteredUsers();
+  const filtering = !!UM.query.trim() || UM.role !== "all";
+  meta.textContent = filtering ? `显示 ${list.length} / ${UM.users.length} 位` : `共 ${UM.users.length} 位用户`;
+  if (!UM.users.length){
+    box.innerHTML = emptyState("还没有用户", "添加第一个账号后，就可以在这里管理角色和报告邮箱。",
+      '<button type="button" class="dsh-btn dsh-btn-primary" data-act="add">' + ico("plus") +
+      '<span class="um-btn-label">添加用户</span></button>');
+    return;
+  }
+  if (!list.length){
+    box.innerHTML = emptyState("没有匹配的用户", "换一个关键词，或清除当前筛选条件后再试。",
+      '<button type="button" class="dsh-btn dsh-btn-outline" data-act="clear">清除筛选</button>');
+    return;
+  }
+  box.innerHTML = '<table class="um-table" aria-label="用户列表"><thead><tr>' +
+    '<th scope="col">用户</th><th scope="col">角色</th><th scope="col">报告邮箱</th>' +
+    '<th scope="col">创建时间</th><th scope="col" style="text-align:right">操作</th>' +
+    '</tr></thead><tbody>' + list.map(userRowHtml).join("") + '</tbody></table>';
+}
+
+async function loadUsers(){
+  UM.loading = true;
+  UM.error = "";
+  if (!UM.loaded) renderUsers();
+  try {
+    const d = await umRequest("/admin/users");
+    UM.users = Array.isArray(d.users) ? d.users : [];
+    UM.loaded = true;
+  } catch (e){
+    UM.error = e.message || "用户列表加载失败";
+  } finally {
+    UM.loading = false;
+    renderUserStats();
+    renderUsers();
+  }
+}
+
+function resetUserFilters(){
+  UM.query = "";
+  UM.role = "all";
+  const input = document.getElementById("um-search");
+  if (input) input.value = "";
+  document.querySelectorAll("#um-role-filter button").forEach(b => {
+    b.classList.toggle("on", b.dataset.role === "all");
+  });
+  renderUsers();
+}
+
+// ---- dialogs ---------------------------------------------------------------
+function showDialog(dialog, focusSelector){
+  closeUserMenu();
+  closeReportMenu();
+  UM.lastFocus = document.activeElement;
+  resetEyes(dialog);
+  if (!dialog.open) dialog.showModal();
+  document.body.style.overflow = "hidden";
+  if (focusSelector){
+    setTimeout(() => {
+      const el = dialog.querySelector(focusSelector);
+      if (el) el.focus();
+    }, 30);
+  }
+}
+document.querySelectorAll("dialog.um-dialog").forEach(dialog => {
+  dialog.addEventListener("close", () => {
+    if (!document.querySelector("dialog.um-dialog[open]")) document.body.style.overflow = "";
+    if (dialog.id === "dlg-user") UM.editing = null;
+    if (dialog.id === "dlg-password") UM.resetting = null;
+    if (dialog.id === "dlg-confirm") UM.confirmAction = null;
+    if (UM.lastFocus && typeof UM.lastFocus.focus === "function") UM.lastFocus.focus();
+  });
+  dialog.addEventListener("click", ev => {
+    if (ev.target === dialog) dialog.close();
+  });
+});
+document.querySelectorAll("dialog.um-dialog [data-close]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const d = btn.closest("dialog.um-dialog");
+    if (d) d.close();
+  });
+});
+
+function openAddUser(){
+  UM.editing = null;
+  const dlg = document.getElementById("dlg-user");
+  const form = document.getElementById("form-user");
+  form.reset();
+  clearUserFormErrors();
+  document.getElementById("dlg-user-title").textContent = "添加用户";
+  document.getElementById("dlg-user-desc").textContent = "创建一个本地登录账号，创建后可继续配置报告邮箱。";
+  document.getElementById("dlg-user-identity").hidden = true;
+  document.getElementById("f-email-field").hidden = true;
+  document.getElementById("f-email-field").querySelector("input").value = "";
+  document.getElementById("f-pass-field").hidden = false;
+  const nameEl = document.getElementById("f-user-name");
+  nameEl.disabled = false;
+  nameEl.value = "";
+  document.getElementById("f-user-name-hint").textContent =
+    "需与采集数据中的人一致：Devin 邮箱或本机账号名。";
+  document.querySelectorAll('input[name="f-user-role"]').forEach(r => {
+    r.disabled = false;
+    r.checked = r.value === "user";
+  });
+  document.getElementById("f-user-role-hint").hidden = true;
+  const label = document.querySelector("#f-user-save .um-btn-label");
+  if (label) label.textContent = "添加用户";
+  resetEyes(dlg);
+  showDialog(dlg, "#f-user-name");
+}
+
+function openEditUser(username){
+  const u = findUser(username);
+  if (!u){ toast("该用户已不在列表中，请刷新后重试", "error"); loadUsers(); return; }
+  UM.editing = u;
+  const dlg = document.getElementById("dlg-user");
+  const form = document.getElementById("form-user");
+  form.reset();
+  clearUserFormErrors();
+  const isSelf = u.username === UM.self;
+  const admin = u.role === "admin";
+  document.getElementById("dlg-user-title").textContent = "编辑用户";
+  document.getElementById("dlg-user-desc").textContent = "修改账号名会同步迁移该用户的历史调用记录。";
+  document.getElementById("dlg-user-identity").hidden = false;
+  const avatar = document.getElementById("dlg-user-avatar");
+  avatar.className = "um-avatar" + (admin ? " is-admin" : "");
+  avatar.textContent = userInitials(u.username);
+  document.getElementById("dlg-user-name").textContent = u.username;
+  document.getElementById("dlg-user-meta").textContent = "创建于 " + fmtUserDate(u.created_at);
+  const nameEl = document.getElementById("f-user-name");
+  nameEl.disabled = false;
+  nameEl.value = u.username;
+  document.getElementById("f-user-name-hint").textContent =
+    "修改后会同步迁移该账号的历史调用记录。";
+  const emailField = document.getElementById("f-email-field");
+  emailField.hidden = false;
+  emailField.querySelector("input").value = u.email || "";
+  const collected = u.collected_email || "";
+  document.getElementById("f-email-hint").textContent = u.email
+    ? (collected ? `留空则保留当前邮箱；采集邮箱：${collected}` : "留空则保留当前邮箱。")
+    : (collected ? `留空则使用采集邮箱：${collected}` : "留空则使用采集数据中的 Devin 邮箱。");
+  document.getElementById("f-pass-field").hidden = true;
+  document.querySelectorAll('input[name="f-user-role"]').forEach(r => {
+    r.checked = r.value === u.role;
+    r.disabled = isSelf;
+  });
+  const roleHint = document.getElementById("f-user-role-hint");
+  roleHint.hidden = !isSelf;
+  const label = document.querySelector("#f-user-save .um-btn-label");
+  if (label) label.textContent = "保存修改";
+  resetEyes(dlg);
+  showDialog(dlg, "#f-user-name");
+  setTimeout(() => nameEl.select(), 40);
+}
+
+function openPasswordDialog(username){
+  const u = findUser(username);
+  if (!u){ toast("该用户已不在列表中，请刷新后重试", "error"); loadUsers(); return; }
+  UM.resetting = u;
+  const dlg = document.getElementById("dlg-password");
+  document.getElementById("form-password").reset();
+  clearPasswordErrors();
+  const avatar = document.getElementById("pw-user-avatar");
+  avatar.className = "um-avatar" + (u.role === "admin" ? " is-admin" : "");
+  avatar.textContent = userInitials(u.username);
+  document.getElementById("pw-user-name").textContent = u.username;
+  resetEyes(dlg);
+  showDialog(dlg, "#f-pw-new");
+}
+
+function openConfirm(opts){
+  UM.confirmAction = opts.onConfirm;
+  const dlg = document.getElementById("dlg-confirm");
+  document.getElementById("cf-title").textContent = opts.title || "确认操作";
+  const desc = document.getElementById("cf-desc");
+  desc.textContent = opts.description || "";
+  desc.hidden = !opts.description;
+  document.getElementById("cf-message").textContent = opts.message || "";
+  const detail = document.getElementById("cf-detail");
+  detail.textContent = opts.detail || "";
+  detail.hidden = !opts.detail;
+  const icon = document.getElementById("cf-icon");
+  icon.innerHTML = opts.danger ? ICONS.alert : ICONS.info;
+  icon.style.background = opts.danger ? "" : "#4176e60f";
+  icon.style.color = opts.danger ? "" : "var(--dsw-alias-state-business-primary)";
+  const ackWrap = document.getElementById("cf-ack-wrap");
+  ackWrap.hidden = !opts.requiresAck;
+  const ack = document.getElementById("cf-ack");
+  ack.checked = false;
+  document.getElementById("cf-ack-text").textContent = opts.ackText || "我了解此操作不可撤销。";
+  showFormError("cf-error", "cf-error-text", "");
+  const btn = document.getElementById("cf-confirm");
+  btn.className = "dsh-btn " + (opts.danger ? "dsh-btn-danger" : "dsh-btn-primary");
+  btn.disabled = !!opts.requiresAck;
+  const label = btn.querySelector(".um-btn-label");
+  if (label) label.textContent = opts.confirmText || "确认";
+  showDialog(dlg, opts.requiresAck ? "#cf-ack" : "#cf-confirm");
+}
+
+// ---- report actions --------------------------------------------------------
+function confirmSendReport(username){
+  const u = findUser(username);
+  if (!u) return;
+  const to = userRecipient(u);
+  if (!to){ toast("该用户未配置邮箱，采集数据中也没有邮箱", "error"); return; }
+  openConfirm({
+    title: "发送用户报告",
+    description: "报告使用最近 7 天窗口，发送后无法撤回。",
+    message: `将「${u.username}」的统计报告发送到以下邮箱。`,
+    detail: to,
+    confirmText: "发送报告",
+    onConfirm: async () => {
+      await umPost(`/admin/users/${encodeURIComponent(u.username)}/send_report`);
+      toast(`报告已发送至 ${to}`);
+    }
+  });
+}
+function confirmSendAllReports(){
+  openConfirm({
+    title: "发送全部用户报告",
+    description: "报告使用最近 7 天窗口，发送后无法撤回。",
+    message: "向所有配置了邮箱且有数据的用户发送个人报告，并向配置了邮箱的管理员发送团队汇总报告。",
+    confirmText: "开始发送",
+    onConfirm: async () => {
+      const d = await umPost("/admin/send_all_reports", {});
+      const results = Array.isArray(d.results) ? d.results : [];
+      const sent = results.filter(x => x.status === "sent").length;
+      const skipped = results.filter(x => x.status === "skipped").length;
+      const failed = results.filter(x => x.status === "failed").length;
+      let msg = `已发送 ${sent} 份 · 跳过 ${skipped} 份 · 失败 ${failed} 份`;
+      let teamOk = true;
+      if (d.team){
+        if (d.team.status === "sent"){
+          const n = (d.team.recipients || []).filter(x => x.status === "sent").length;
+          msg += ` · 团队报告已发 ${n} 位管理员`;
+        } else {
+          teamOk = d.team.status !== "failed";
+          msg += d.team.status === "skipped" ? " · 团队报告已跳过" : " · 团队报告发送失败";
+          if (d.team.reason) msg += `（${d.team.reason}）`;
+        }
+      }
+      toast(msg, failed === 0 && teamOk ? "success" : "error", failed === 0 && teamOk ? 4200 : 9000);
+    }
+  });
+}
+function confirmSendTeamReport(){
+  openConfirm({
+    title: "发送团队汇总报告",
+    description: "报告使用最近 7 天窗口，发送后无法撤回。",
+    message: "将团队汇总报告发送给所有配置了邮箱的管理员。",
+    confirmText: "发送报告",
+    onConfirm: async () => {
+      const d = await umPost("/admin/send_team_report", {});
+      const to = Array.isArray(d.sent_to) ? d.sent_to : [];
+      toast(to.length ? `团队报告已发送至 ${to.join("、")}` : "团队报告已发送");
+    }
+  });
+}
+
+// ---- row / report menus ----------------------------------------------------
+const userMenu = document.getElementById("um-menu");
+const reportBtn = document.getElementById("report-btn");
+const reportMenu = document.getElementById("report-menu");
+function closeUserMenu(){
+  if (!userMenu) return;
+  userMenu.hidden = true;
+  if (UM.menuAnchor){
+    UM.menuAnchor.setAttribute("aria-expanded", "false");
+    UM.menuAnchor = null;
+  }
+  UM.menuUser = null;
+}
+function positionFloatingMenu(anchor, menu){
+  const rect = anchor.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = Math.min(Math.max(8, rect.right - mw), window.innerWidth - mw - 8);
+  let top = rect.bottom + 6;
+  if (top + mh > window.innerHeight - 8) top = Math.max(8, rect.top - mh - 6);
+  menu.style.left = left + "px";
+  menu.style.top = top + "px";
+}
+function openUserMenu(anchor, username){
+  const u = findUser(username);
+  if (!u) return;
+  closeReportMenu();
+  closeUserMenu();
+  UM.menuUser = u;
+  UM.menuAnchor = anchor;
+  const self = u.username === UM.self;
+  const to = userRecipient(u);
+  userMenu.innerHTML =
+    '<div class="um-menu-head">' + esc(u.username) + '</div>' +
+    `<button type="button" role="menuitem" data-menu-act="report" title="${to ? esc(to) : "未配置邮箱"}">` +
+      `${ico("send")}发送报告</button>` +
+    `<button type="button" role="menuitem" data-menu-act="password">${ico("key")}重置密码</button>` +
+    '<div class="um-menu-sep"></div>' +
+    `<button type="button" role="menuitem" class="danger" data-menu-act="delete"${self ? " disabled" : ""}>` +
+      `${ico("trash")}删除用户</button>`;
+  userMenu.hidden = false;
+  anchor.setAttribute("aria-expanded", "true");
+  positionFloatingMenu(anchor, userMenu);
+}
+function closeReportMenu(){
+  if (!reportMenu || !reportBtn) return;
+  reportMenu.hidden = true;
+  reportBtn.setAttribute("aria-expanded", "false");
+}
+
+// ---- wire up interactions --------------------------------------------------
+document.getElementById("nu-add").addEventListener("click", openAddUser);
+document.getElementById("um-search").addEventListener("input", ev => {
+  UM.query = ev.target.value || "";
+  renderUsers();
+});
+document.getElementById("um-search-clear").addEventListener("click", () => {
+  UM.query = "";
+  document.getElementById("um-search").value = "";
+  document.getElementById("um-search").focus();
+  renderUsers();
+});
+document.getElementById("um-role-filter").addEventListener("click", ev => {
+  const btn = ev.target.closest("button[data-role]");
+  if (!btn) return;
+  UM.role = btn.dataset.role;
+  document.querySelectorAll("#um-role-filter button").forEach(b => {
+    b.classList.toggle("on", b === btn);
+  });
+  renderUsers();
+});
+document.getElementById("t-admin").addEventListener("click", ev => {
+  const btn = ev.target.closest("[data-act]");
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === "add") openAddUser();
+  else if (act === "edit") openEditUser(btn.dataset.user);
+  else if (act === "more") openUserMenu(btn, btn.dataset.user);
+  else if (act === "retry") loadUsers();
+  else if (act === "clear") resetUserFilters();
+});
+userMenu.addEventListener("click", ev => {
+  const btn = ev.target.closest("[data-menu-act]");
+  if (!btn || btn.disabled) return;
+  const act = btn.dataset.menuAct, u = UM.menuUser;
+  closeUserMenu();
+  if (!u) return;
+  if (act === "report") confirmSendReport(u.username);
+  else if (act === "password") openPasswordDialog(u.username);
+  else if (act === "delete") confirmDeleteUser(u);
+});
+reportBtn.addEventListener("click", ev => {
+  ev.stopPropagation();
+  const open = reportMenu.hidden;
+  closeUserMenu();
+  reportMenu.hidden = !open;
+  reportBtn.setAttribute("aria-expanded", String(open));
+});
+reportMenu.addEventListener("click", ev => {
+  const btn = ev.target.closest("[data-report]");
+  if (!btn) return;
+  closeReportMenu();
+  if (btn.dataset.report === "all") confirmSendAllReports();
+  else confirmSendTeamReport();
+});
+document.addEventListener("click", ev => {
+  if (!ev.target.closest("#um-menu, #report-menu, #report-btn, [data-act='more']")){
+    closeUserMenu();
+    closeReportMenu();
+  }
+});
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape"){
+    closeUserMenu();
+    closeReportMenu();
+  }
+});
+window.addEventListener("resize", () => { closeUserMenu(); closeReportMenu(); });
+window.addEventListener("scroll", () => { closeUserMenu(); closeReportMenu(); }, true);
+
+function confirmDeleteUser(u){
+  if (u.username === UM.self) return;
+  openConfirm({
+    title: "删除用户",
+    description: "账号会从用户管理列表中移除。",
+    message: "删除后该账号无法登录，历史调用记录会保留。",
+    detail: "用户名：" + u.username,
+    confirmText: "删除用户",
+    danger: true,
+    requiresAck: true,
+    ackText: "我了解此操作不可撤销。",
+    onConfirm: async () => {
+      await umPost(`/admin/users/${encodeURIComponent(u.username)}/delete`);
+      toast(`已删除用户 ${u.username}`);
+      await loadUsers();
+    }
+  });
+}
+
+document.getElementById("form-user").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const editing = UM.editing;
+  const name = document.getElementById("f-user-name").value.trim();
+  const email = document.getElementById("f-user-email").value.trim();
+  const pass = document.getElementById("f-user-pass").value;
+  const roleEl = document.querySelector('input[name="f-user-role"]:checked');
+  const role = roleEl ? roleEl.value : "user";
+  clearUserFormErrors();
+  let invalid = false;
+  if (!name){ markField("f-user-name", "err-user-name", "请输入用户名"); invalid = true; }
+  else if (name.length > 64 || /[\u0000-\u001f]/.test(name)){
+    markField("f-user-name", "err-user-name", "用户名需为 1-64 个字符且不含控制字符"); invalid = true;
+  }
+  if (!editing){
+    if (pass.length < 8){ markField("f-user-pass", "err-user-pass", "密码至少 8 位"); invalid = true; }
+    else if (pass.length > 1024){ markField("f-user-pass", "err-user-pass", "密码过长"); invalid = true; }
+  } else if (email && !UM_EMAIL_RE.test(email)){
+    markField("f-user-email", "err-user-email", "邮箱格式不正确"); invalid = true;
+  }
+  if (invalid) return;
+  const saveBtn = document.getElementById("f-user-save");
+  const dlg = document.getElementById("dlg-user");
+  setBusy(saveBtn, true);
+  try {
+    if (!editing){
+      await umPost("/admin/users", { username: name, password: pass, role });
+      dlg.close();
+      toast(`已创建用户 ${name}`);
+      await loadUsers();
+      return;
+    }
+    const oldName = editing.username;
+    const changes = [];
+    if (role !== editing.role){
+      await umPost(`/admin/users/${encodeURIComponent(oldName)}/role`, { role });
+      changes.push("角色");
+    }
+    if (email && email !== (editing.email || "")){
+      await umPost(`/admin/users/${encodeURIComponent(oldName)}/email`, { email });
+      changes.push("报告邮箱");
+    }
+    if (name !== oldName){
+      await umPost(`/admin/users/${encodeURIComponent(oldName)}/rename`, { username: name });
+      changes.push("用户名");
+    }
+    if (!changes.length){
+      dlg.close();
+      toast("没有需要保存的修改", "info");
+      return;
+    }
+    dlg.close();
+    toast(`已保存 ${name} 的${changes.join("、")}`);
+    if (oldName === UM.self && name !== oldName){
+      setTimeout(() => window.location.reload(), 600);
+      return;
+    }
+    await loadUsers();
+  } catch (e){
+    showFormError("err-user-form", "err-user-form-text", e.message || "保存失败");
+  } finally {
+    setBusy(saveBtn, false);
   }
 });
 
-document.getElementById("nu-add").onclick = async () => {
-  const body = { username: document.getElementById("nu-name").value.trim(),
-                 password: document.getElementById("nu-pass").value,
-                 role: document.getElementById("nu-role").value };
-  const r = await api("/admin/users", body);
-  adminMsg(r.ok ? "用户已创建" : await errDetail(r), r.ok);
-  if (r.ok){
-    document.getElementById("nu-name").value = "";
-    document.getElementById("nu-pass").value = "";
-    loadUsers();
+document.getElementById("form-password").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const u = UM.resetting;
+  if (!u) return;
+  const pw = document.getElementById("f-pw-new").value;
+  const confirmPw = document.getElementById("f-pw-confirm").value;
+  clearPasswordErrors();
+  let invalid = false;
+  if (pw.length < 8){ markField("f-pw-new", "err-pw-new", "密码至少 8 位"); invalid = true; }
+  else if (pw.length > 1024){ markField("f-pw-new", "err-pw-new", "密码过长"); invalid = true; }
+  if (confirmPw !== pw){ markField("f-pw-confirm", "err-pw-confirm", "两次输入的密码不一致"); invalid = true; }
+  if (invalid) return;
+  const btn = document.getElementById("f-pw-save");
+  setBusy(btn, true);
+  try {
+    await umPost(`/admin/users/${encodeURIComponent(u.username)}/password`, { password: pw });
+    document.getElementById("dlg-password").close();
+    toast(`已重置 ${u.username} 的密码`);
+  } catch (e){
+    showFormError("err-pw-form", "err-pw-form-text", e.message || "重置失败");
+  } finally {
+    setBusy(btn, false);
   }
-};
+});
+
+document.getElementById("cf-ack").addEventListener("change", ev => {
+  const btn = document.getElementById("cf-confirm");
+  btn.disabled = !ev.target.checked;
+});
+document.getElementById("cf-confirm").addEventListener("click", async () => {
+  const fn = UM.confirmAction;
+  if (!fn) return;
+  const btn = document.getElementById("cf-confirm");
+  const ackWrap = document.getElementById("cf-ack-wrap");
+  const ack = document.getElementById("cf-ack");
+  showFormError("cf-error", "cf-error-text", "");
+  btn.disabled = true;
+  setBusy(btn, true);
+  try {
+    await fn();
+    const dlg = document.getElementById("dlg-confirm");
+    if (dlg.open) dlg.close();
+  } catch (e){
+    showFormError("cf-error", "cf-error-text", e.message || "操作失败");
+  } finally {
+    setBusy(btn, false);
+    if (!ackWrap.hidden) btn.disabled = !ack.checked;
+  }
+});
 
 document.getElementById("pw-save").onclick = async () => {
   const el = document.getElementById("pw-msg");
@@ -624,39 +1793,6 @@ document.getElementById("pw-save").onclick = async () => {
   if (r.ok){
     document.getElementById("pw-old").value = "";
     document.getElementById("pw-new").value = "";
-  }
-};
-
-document.getElementById("send-all").onclick = async () => {
-  if (!confirm("给所有已配置邮箱且有数据的用户发送统计报告（最近 7 天窗口），并向配置了邮箱的管理员发送团队汇总报告？")) return;
-  adminMsg("发送中…", true);
-  const r = await api("/admin/send_all_reports", {});
-  if (r.ok){
-    const d = await r.json();
-    const sent = d.results.filter(x => x.status === "sent").length;
-    const skipped = d.results.filter(x => x.status === "skipped").length;
-    const failed = d.results.filter(x => x.status === "failed").length;
-    let msg = `发送 ${sent} · 跳过 ${skipped} · 失败 ${failed}`;
-    if (d.team){
-      msg += " · 团队报告: " + (d.team.status === "sent"
-        ? `已发 ${d.team.recipients.filter(x => x.status === "sent").length} 位管理员`
-        : `${d.team.status}${d.team.reason ? "（" + d.team.reason + "）" : ""}`);
-    }
-    adminMsg(msg, failed === 0 && (!d.team || d.team.status !== "failed"));
-  } else {
-    adminMsg(await errDetail(r), false);
-  }
-};
-
-document.getElementById("send-team").onclick = async () => {
-  if (!confirm("将团队汇总报告（团队聚合 + 每人概览，最近 7 天窗口）发送给所有配置了邮箱的管理员？")) return;
-  adminMsg("发送中…", true);
-  const r = await api("/admin/send_team_report", {});
-  if (r.ok){
-    const d = await r.json();
-    adminMsg(`团队报告已发送：${(d.sent_to || []).join("、")}`, true);
-  } else {
-    adminMsg(await errDetail(r), false);
   }
 };
 
@@ -746,7 +1882,7 @@ if (USER && USER.name){
     window.location.href = "/login";
   };
   if (isAdmin){
-    document.getElementById("admin-card").style.display = "";
+    document.getElementById("tab-manage").style.display = "";
     document.getElementById("smtp-card").style.display = "";
     loadUsers();
     loadSmtp();
@@ -756,6 +1892,7 @@ if (USER && USER.name){
     document.getElementById("tool-user-wrap").style.display = "none";
     document.getElementById("skill-user-wrap").style.display = "none";
     document.getElementById("tab-user").style.display = "none";
+    document.getElementById("tab-manage").style.display = "none";
   }
 }
 
@@ -781,6 +1918,7 @@ document.querySelectorAll(".tab").forEach(t => {
     document.getElementById("p-" + name).classList.add("on");
     activeTab = name;
     renderTabCharts(name, DATA);
+    if (name === "manage" && isAdmin) loadUsers();
     setTimeout(resizeAll, 30);
   };
 });

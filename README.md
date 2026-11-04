@@ -53,11 +53,39 @@ Environment:
 `/dashboard` and `/v1/stats` require login; `/v1/events`, `/health` and
 `/echarts` stay open for collectors and probes. Two roles:
 
-- **admin** — sees all data; manages users in the dashboard's 用户管理 panel
+- **admin** — sees all data; manages users in the dashboard's 用户管理 tab
   (add / reset password / change role / rename / delete)
 - **user** — sees only their own records, matched against the **person key**
   the collector reports (see [Who a record belongs to](#who-a-record-belongs-to)).
   Local usernames must equal that key, otherwise a user's view stays empty.
+
+### 用户管理 tab
+
+Admins get a dedicated 用户管理 tab (between 用户分析 and 账号). It follows the
+DeepSeek Harness web UI language — hairline borders, layered radii, a dark
+primary button, quiet secondary labels — and replaces the old inline table with
+`prompt()`/`confirm()` prompts:
+
+- **Overview cards** — account count, admin count, accounts with a report mailbox.
+- **Table** — one row per account with avatar, role tag, report mailbox
+  (falling back to the collected Devin email, marked as such), and creation time.
+  Search by username/email and filter by role.
+- **Row actions** — 编辑 opens a dialog for username / mailbox / role, the
+  `⋯` menu offers 发送报告, 重置密码 and 删除用户.
+- **Dialogs** — add, edit, reset password and a shared confirmation dialog.
+  Deleting asks for an explicit acknowledgement; a role change that would drop
+  the last admin is refused by the API.
+- **Feedback** — a toast confirms each action; form errors stay inline in the
+  dialog. No native browser dialogs are used anymore.
+
+The backend endpoints are unchanged (`/admin/users`, `.../password`,
+`.../role`, `.../rename`, `.../email`, `.../send_report`, `.../delete`).
+
+**Access control** — the tab is hidden from regular users and the panel is
+never populated for them; every `/admin/*` endpoint is guarded by
+`require_admin`, so a direct API call returns 403 需要管理员权限. The role is
+re-read from the database on every request, so demoting an admin takes effect
+immediately.
 
 ### Who a record belongs to
 
@@ -83,16 +111,17 @@ records can live in the same table. A dashboard account named
 dashboard shows the reported display name next to the key (`Ian Yin ·
 ian_yin@sercomm.com`).
 
-**Report recipients**: the mailbox configured in the 用户管理 panel wins; when
+**Report recipients**: the mailbox configured in the 用户管理 tab wins; when
 an account has none, the server falls back to the Devin email the collector
 reported for that person — the address is already known, so it does not have to
-be entered twice. 改名 (rename) migrates both the `user` field and the email of
-the matching records, so the account stays linked to its data.
+be entered twice. Renaming a user (用户管理 tab → 编辑 → 用户名) migrates both
+the `user` field and the email of the matching records, so the account stays
+linked to its data.
 
 **Default admin**: on the first start (empty users table) the server creates
 `SUPER_ADMIN` with password `SUPER_ADMIN` — no manual step, no sqlite3 CLI
 needed. Log in, change that password via 改密码 (账号 tab), then manage all
-further users in the GUI (用户管理 panel: add / reset password / change role).
+further users in the GUI (用户管理 tab: add / reset password / change role).
 The seed runs only while the users table is empty, so a changed password
 survives restarts.
 
@@ -110,9 +139,8 @@ print('已重置')
 ```
 
 Users change their own password in the 账号 tab. Renaming (including self)
-is admin-only, done with the pencil icon next to a username in the 用户管理
-panel. Passwords are stored as PBKDF2-SHA256 hashes (600k iterations,
-per-user salt).
+is admin-only, done from the 编辑 dialog in the 用户管理 tab. Passwords are
+stored as PBKDF2-SHA256 hashes (600k iterations, per-user salt).
 
 Renaming a user migrates their historical event records to the new name
 (login identity and data stay linked; the password is unchanged). Deleting a
@@ -120,12 +148,13 @@ user removes only the account — their historical event records are kept.
 
 ## Email reports (Outlook)
 
-Admins can configure each user's mailbox in the 用户管理 panel (邮箱 link),
-then send the user's stats as an email per user (发报告) or to everyone
-configured at once (全部发送报告 — users without data in the window are
-skipped). An account with no configured mailbox falls back to the Devin email
-the collector reported for that person; accounts with neither are skipped with
-the reason 没有邮箱. The report is email-client-safe HTML (no JS — renders in Outlook).
+Admins can configure each user's mailbox in the 用户管理 tab (编辑 dialog →
+报告邮箱), then send the user's stats as an email per user (发送报告) or to
+everyone configured at once (发送报告 menu → 发送全部用户报告 — users without
+data in the window are skipped). An account with no configured mailbox falls
+back to the Devin email the collector reported for that person; accounts with
+neither are skipped with the reason 没有邮箱. The report is email-client-safe
+HTML (no JS — renders in Outlook).
 
 **Report content** (windowed, not all-history): a header line (window ·
 sessions · tool calls), KPI cards, then
@@ -211,8 +240,9 @@ internet needed at view time; `GET /` redirects here). Layout: KPI cards on top
 and skill counts, detail tables), Tool 分析 and Skill 分析 (daily drill-downs
 filterable by 时间范围 × 用户 × tool/skill name with 7/14/30/90/180/365-day windows),
 用户分析 (user × tool / user × skill stacked charts + tables; admins can pick
-any user, regular users are locked to their own records), 账号 (change own
-password; admins additionally get the 用户管理 panel). Data is embedded
+any user, regular users are locked to their own records), 用户管理 (admin-only
+account management, see [用户管理 tab](#用户管理-tab)), 账号 (change own
+password; admins additionally get the SMTP and schedule cards). Data is embedded
 server-side on load and refreshed via `/v1/stats` every 30 s (toggle) or on
 demand. Requires login; the header shows the signed-in user with 登出.
 
