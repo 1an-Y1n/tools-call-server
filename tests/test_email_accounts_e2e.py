@@ -155,8 +155,12 @@ def main():
         # --- admin login + SMTP config
         st, body, admin = login("SUPER_ADMIN", "SUPER_ADMIN")
         check("super admin login", st == 200, body)
+        # the sender is SUPER_ADMIN's mailbox, so give it one before sending
+        st, body, _ = http("POST", "/admin/users/SUPER_ADMIN/email",
+                           {"email": "bot@corp.com"}, admin)
+        check("super admin mailbox set", st == 200, body)
         st, body, _ = http("POST", "/admin/smtp", {
-            "host": "127.0.0.1", "port": SMTP_PORT, "user": "bot@corp.com",
+            "host": "127.0.0.1", "port": SMTP_PORT,
             "password": "", "security": "none", "email_allowlist": ""}, admin)
         check("smtp saved", st == 200, body)
 

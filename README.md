@@ -46,7 +46,8 @@ Environment:
 | `SESSION_MAX_AGE` | `28800` | Session lifetime in seconds (8 h) |
 | `SMTP_HOST` | — (empty) | SMTP server for report emails — the internal relay or Office 365; configured in the GUI, env is only a fallback |
 | `SMTP_PORT` | — (empty) | SMTP port; falls back to 25 when unset |
-| `SMTP_USER` / `SMTP_PASSWORD` | — | Sender mailbox + its password (or app password); leave empty for relays without auth |
+| `SMTP_USER` | — | Override for the sender mailbox; normally empty, because the sender is **SUPER_ADMIN's own mailbox** (see below) |
+| `SMTP_PASSWORD` | — | Password / app password; leave empty for relays without auth |
 | `SMTP_SECURITY` | `starttls` | `starttls` / `ssl` / `none` |
 | `SMTP_EHLO_NAME` | `tools-call-server` | EHLO hostname sent to the relay; a fixed value avoids smtplib's getfqdn() DNS lookups that can hang on hosts with broken reverse DNS |
 
@@ -214,12 +215,26 @@ subject); scheduled 每天 covers yesterday; manual sends cover the last
 
 The sender (SMTP) configuration lives in the 用户管理 tab's 邮件发送设置 card
 (admin-only): server / port / security (STARTTLS default, SSL, none) /
-sender mailbox, plus a 测试发送 button to verify. The sender address shown
-in recipients' inboxes is the sender mailbox itself. The GUI has no
-password field — the internal relay needs none; for authenticated Office
-365 sending set `SMTP_PASSWORD` via env. Settings are stored in the DB and
+password, plus a 测试发送 button to verify. **The sender is always the
+`SUPER_ADMIN` account's own mailbox** (用户管理 → SUPER_ADMIN → 报告邮箱): the
+From header, the SMTP login and the account an admin maintains are one value,
+so they cannot drift apart. `SMTP_USER` is an escape hatch for deployments
+that must send as something else. A fresh deployment has no relay and a
+`SUPER_ADMIN` without a mailbox, so every send endpoint returns
+`SMTP 未配置：请先在用户管理中给 SUPER_ADMIN 填写邮箱（它是发件人）` (or the
+server-address variant) and scheduled reports skip with the same reason —
+nothing is silently dropped.
+
+The password field is **write-only**: the stored value is never returned by
+the API, the form stays empty on load, and an empty field means "keep the
+stored one". Leave it empty for an IP-trusted internal relay; Office 365
+needs an app password (MFA) here. If the relay does not advertise AUTH at
+all, the password is simply not used. Settings are stored in the DB and
 override the `SMTP_*` environment variables (which remain as fallback
-defaults). For Microsoft 365 the sender mailbox must allow SMTP AUTH — if
+defaults). **Changing `SUPER_ADMIN`'s mailbox changes the SMTP login as well
+as the From header**, so the stored password must belong to that mailbox —
+an app password issued for a previous sender will fail authentication. For
+Microsoft 365 the sender mailbox must allow SMTP AUTH — if
 the tenant disables it, ask IT to enable SMTP AUTH, or use an app password
 when MFA is on. Without any sender configured, the send endpoints return a
 clear error.

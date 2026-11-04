@@ -87,17 +87,32 @@ SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")
 SMTP_EHLO_NAME = os.environ.get("SMTP_EHLO_NAME", "tools-call-server")
 
 
+def super_admin_email():
+    """The address the server sends from: SUPER_ADMIN's own mailbox.
+
+    Keeping one source means the From header, the SMTP account and the
+    account an admin maintains can never disagree.
+    """
+    with closing(connect()) as conn:
+        row = conn.execute(
+            "SELECT email FROM users WHERE username = 'SUPER_ADMIN'").fetchone()
+    return (row[0] or "").strip() if row else ""
+
+
 def get_smtp_config():
-    # DB settings (admin GUI) override the env-var defaults; legacy smtp_from
-    # rows (field removed) are ignored
-    cfg = {"host": SMTP_HOST, "port": SMTP_PORT, "user": SMTP_USER,
+    # DB settings (admin GUI) override the env-var defaults; legacy smtp_from /
+    # smtp_user rows (sender is derived, not configured) are ignored
+    cfg = {"host": SMTP_HOST, "port": SMTP_PORT,
            "password": SMTP_PASSWORD, "security": SMTP_SECURITY}
     with closing(connect()) as conn:
         for k, v in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'smtp_%'"):
             key = k[len("smtp_"):]
-            if key == "from":
+            if key in ("from", "user"):
                 continue
             cfg[key] = int(v) if key == "port" and v.isdigit() else v
+    # SMTP_USER stays as an escape hatch for deployments that must send as a
+    # different mailbox (a relay-only service account, say)
+    cfg["sender"] = (SMTP_USER or super_admin_email()).strip()
     return cfg
 
 
@@ -967,12 +982,17 @@ def send_html_mail(to, subject, html):
     cfg = get_smtp_config()
     port = cfg["port"] or 25
     log.info("SMTP send: to=%s host=%s port=%s security=%s ehlo=%s user=%s password_set=%s",
-             to, cfg["host"], port, cfg["security"], SMTP_EHLO_NAME, cfg["user"], bool(cfg["password"]))
-    if not cfg["host"] or not cfg["user"]:
-        log.warning("SMTP not configured: host=%r user=%r", cfg["host"], cfg["user"])
-        raise RuntimeError("SMTP 未配置：请填写服务器与账号后保存，再发送")
+             to, cfg["host"], port, cfg["security"], SMTP_EHLO_NAME,
+             cfg["sender"], bool(cfg["password"]))
+    if not cfg["host"]:
+        log.warning("SMTP not configured: host=%r", cfg["host"])
+        raise RuntimeError("SMTP 未配置：请填写服务器地址后保存，再发送")
+    if not cfg["sender"]:
+        log.warning("SMTP sender missing: SUPER_ADMIN has no mailbox")
+        raise RuntimeError(
+            "SMTP 未配置：请先在用户管理中给 SUPER_ADMIN 填写邮箱（它是发件人）")
     msg = MIMEMultipart("alternative")
-    msg["From"] = cfg["user"]
+    msg["From"] = cfg["sender"]
     msg["To"] = to
     msg["Subject"] = subject
     msg.attach(MIMEText(html, "html", "utf-8"))
@@ -988,7 +1008,6 @@ def send_html_mail(to, subject, html):
         raise
     log.info("SMTP connected in %.1fs", time.monotonic() - t0)
     with s:
-        s.set_debuglevel(1)
         s.ehlo()
         if cfg["security"] == "starttls":
             s.starttls()
@@ -998,7 +1017,7 @@ def send_html_mail(to, subject, html):
             # trusted by source IP don't, and a stale stored password must not
             # break those sends
             if "auth" in s.esmtp_features:
-                s.login(cfg["user"], cfg["user"])
+                s.login(cfg["sender"], cfg["password"])
             else:
                 log.info("server has no AUTH extension; skipping login")
         s.send_message(msg)
@@ -1448,7 +1467,6 @@ def admin_send_all(user: dict = Depends(require_admin)):
 class SmtpBody(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
-    user: Optional[str] = None
     password: Optional[str] = None
     security: Optional[str] = None
     email_allowlist: Optional[str] = None
@@ -1462,7 +1480,7 @@ class TestToBody(BaseModel):
 def admin_get_smtp(user: dict = Depends(require_admin)):
     cfg = get_smtp_config()
     # 密码只写不可读：只返回是否已配置
-    return {"host": cfg["host"], "port": cfg["port"], "user": cfg["user"],
+    return {"host": cfg["host"], "port": cfg["port"], "sender": cfg["sender"],
             "password_set": bool(cfg["password"]), "security": cfg["security"],
             "email_allowlist": get_email_allowlist()}
 
@@ -1474,8 +1492,6 @@ def admin_set_smtp(body: SmtpBody, user: dict = Depends(require_admin)):
         updates["host"] = body.host.strip()
     if body.port is not None:
         updates["port"] = body.port
-    if body.user is not None:
-        updates["user"] = body.user.strip()
     if body.password is not None:
         # 字段存在但为空 = 清除密码（改用免认证中继）；字段缺省 = 保持不变
         updates["password"] = body.password

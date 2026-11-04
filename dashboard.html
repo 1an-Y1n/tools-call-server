@@ -163,6 +163,9 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
   color:var(--dsw-alias-label-tertiary)}
 .um-setting-val{display:flex;align-items:center;gap:8px;flex:1 1 320px;flex-wrap:wrap;min-width:0}
 .um-setting-sub{font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
+.um-sender{display:inline-flex;align-items:center;min-height:38px;font-size:13px;
+  color:var(--dsw-alias-label-primary);font-family:inherit}
+.um-sender.is-empty{color:var(--dsw-alias-state-error-primary)}
 .um-setting-hint{flex:1 1 100%;font-size:11.5px;line-height:17px;
   color:var(--dsw-alias-label-tertiary)}
 .um-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:20px;
@@ -687,7 +690,21 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
         <div class="um-setting-row">
           <span class="um-setting-key">发件账号</span>
           <div class="um-setting-val">
-            <input class="um-input um-w-lg" id="smtp-user" autocomplete="off" placeholder="发件邮箱（中继免密码）">
+            <span class="um-sender" id="smtp-sender">—</span>
+            <span class="um-setting-hint" id="smtp-sender-hint">
+              固定为 SUPER_ADMIN 的邮箱，收件人看到的 From 就是它；在账号列表里编辑 SUPER_ADMIN 即可修改。
+            </span>
+          </div>
+        </div>
+        <div class="um-setting-row">
+          <span class="um-setting-key">密码</span>
+          <div class="um-setting-val">
+            <span class="um-pw" style="flex:1 1 280px;max-width:420px">
+              <input class="um-input" id="smtp-password" type="password"
+                autocomplete="new-password" placeholder="留空 = 不修改">
+              <button type="button" data-eye="smtp-password" aria-label="显示密码"><span class="um-ico" data-icon="eye"></span></button>
+            </span>
+            <span class="um-setting-hint" id="smtp-password-hint">账号免认证的中继可以留空；Office 365 需要填应用密码。</span>
           </div>
         </div>
         <div class="um-setting-row">
@@ -2786,14 +2803,26 @@ async function loadSmtp(){
   const c = await r.json();
   document.getElementById("smtp-host").value = c.host || "";
   document.getElementById("smtp-port").value = c.port || "";
-  document.getElementById("smtp-user").value = c.user || "";
+  const senderEl = document.getElementById("smtp-sender");
+  senderEl.textContent = c.sender || "未设置（SUPER_ADMIN 没有邮箱）";
+  senderEl.classList.toggle("is-empty", !c.sender);
+  document.getElementById("smtp-sender-hint").textContent = c.sender
+    ? "固定为 SUPER_ADMIN 的邮箱，收件人看到的 From 就是它；在账号列表里编辑 SUPER_ADMIN 即可修改。"
+    : "SUPER_ADMIN 还没有邮箱：请到上面的账号列表编辑它并填写报告邮箱，否则无法发信。";
   document.getElementById("smtp-security").value = c.security || "starttls";
   document.getElementById("smtp-allowlist").value = c.email_allowlist || "";
+  // the stored password is never sent back: the field stays empty and only the
+  // hint tells the admin whether one exists
+  const pw = document.getElementById("smtp-password");
+  pw.value = "";
+  document.getElementById("smtp-password-hint").textContent = c.password_set
+    ? "已设置。留空则保持不变；输入新值会覆盖它。"
+    : "尚未设置。账号免认证的中继可以留空；Office 365 需要填应用密码。";
   // remember what the server holds, so a save can tell "changed" from "stale"
   smtpLoaded = {
     host: c.host || "",
     port: normSmtp(c.port),
-    user: c.user || "",
+    sender: c.sender || "",
     security: c.security || "starttls",
     allowlist: c.email_allowlist || "",
   };
@@ -2804,14 +2833,18 @@ async function loadSmtp(){
 // table under different key prefixes (smtp_* / report_*), so this stays a
 // front-end concern — the endpoints are untouched.
 function smtpPayload(){
-  // the password is write-only: leaving the key out keeps the stored one
-  return {
+  // the password is write-only: the key is omitted unless a new value was
+  // typed, which is what keeps a stored password from being cleared by an
+  // unrelated save
+  const payload = {
     host: document.getElementById("smtp-host").value.trim(),
     port: parseInt(document.getElementById("smtp-port").value, 10) || null,
-    user: document.getElementById("smtp-user").value.trim(),
     security: document.getElementById("smtp-security").value,
     email_allowlist: document.getElementById("smtp-allowlist").value.trim(),
   };
+  const typed = document.getElementById("smtp-password").value;
+  if (typed) payload.password = typed;
+  return payload;
 }
 function schedulePayload(){
   return {
@@ -2830,9 +2863,9 @@ function smtpChanged(){
   const s = smtpPayload();
   return s.host !== smtpLoaded.host
       || normSmtp(s.port) !== smtpLoaded.port
-      || s.user !== smtpLoaded.user
       || s.security !== smtpLoaded.security
-      || s.email_allowlist !== smtpLoaded.allowlist;
+      || s.email_allowlist !== smtpLoaded.allowlist
+      || !!s.password;
 }
 function mailMsg(text, ok){
   const el = document.getElementById("smtp-msg");
@@ -2868,6 +2901,7 @@ document.getElementById("smtp-save").onclick = async () => {
       toast("已保存，但未填写 SMTP 服务器地址，定时发送会失败", "error");
       return;
     }
+    document.getElementById("smtp-password").value = "";
     mailMsg("已保存", true);
     toast("邮件发送设置已保存");
   } catch (e){
