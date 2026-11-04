@@ -1007,7 +1007,7 @@ function optHeatmap(dayLabels, personLabels, cells, max){
     visualMap:{min:0,max:max || 1,calculable:false,orient:"horizontal",
       left:"center",bottom:6,itemWidth:12,itemHeight:90,
       textStyle:{color:CH.dim,fontSize:10},
-      inRange:{color:["#f1f3f5","#dbe7f8","#9dbdec","#5b8fdd","#2f62b8"]}},
+      inRange:{color:["#eaeef4","#d3e2f7","#9dbdec","#5b8fdd","#2f62b8"]}},
     series:[{type:"heatmap",data:cells,
       itemStyle:{borderRadius:2,borderWidth:1,borderColor:"#fff"},
       emphasis:{itemStyle:{borderColor:"#0f1115",borderWidth:1}}}]
@@ -1795,7 +1795,8 @@ function renderUserTab(d){
   renderUserTable(d, days, daily, toolItems, skillItems, shown);
 }
 
-// person -> {day: n}, either all activity or one skill.
+// person -> {day: n}. With no Skill filter this is every call (tools folded
+// in via the skill bucket); picking a Skill narrows it to that Skill.
 function uaHeatSource(d, days, persons){
   const inWindow = new Set(days);
   const out = {};
@@ -1810,7 +1811,7 @@ function uaHeatSource(d, days, persons){
       });
     } else {
       const per = (d.user_skill_days?.[p] || {})[UA.skill] || {};
-      Object.keys(per).forEach(day => { if (inWindow.has(day)) acc[day] = (acc[day] || 0) + per[day]; });
+      Object.keys(per).forEach(day => { if (inWindow.has(day)) acc[day] = per[day]; });
     }
     out[p] = acc;
   });
@@ -1829,13 +1830,18 @@ function renderUserHeat(d, days, heat, persons){
     days.forEach((day, xi) => {
       const n = per[day] || 0;
       if (n > max) max = n;
-      if (n > 0) cells.push([xi, yi, n]);
+      // every cell is drawn: 0 is a real value and sits at the lightest end
+      // of the scale, so the grid reads as a complete matrix
+      cells.push([xi, yi, n]);
     });
   });
   draw("c-ua-heat", optHeatmap(days.map(x => x.slice(5)), labels, cells, max));
+  const active = cells.filter(c => c[2] > 0).length;
   document.getElementById("ua-note").innerHTML = UA.skill === "__all__"
-    ? `共 <b>${cells.length}</b> 个「用户 × 天」有调用记录，颜色越深调用越多（峰值 ${max} 次/天）。`
-    : `只看 <b>${esc(UA.skill)}</b>：共 <b>${cells.length}</b> 个「用户 × 天」用过它（峰值 ${max} 次/天）。`;
+    ? `共 <b>${active}</b> 个「用户 × 天」有调用记录，其余 <b>${cells.length - active}</b> 个为 0 次` +
+      `（用最浅色表示）。颜色越深调用越多，峰值 ${max} 次/天。`
+    : `只看 <b>${esc(UA.skill)}</b>：<b>${active}</b> 个「用户 × 天」用过它，` +
+      `其余 <b>${cells.length - active}</b> 个为 0 次（最浅色）。峰值 ${max} 次/天。`;
 }
 
 // Each person's skill mix, inside the same window.

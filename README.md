@@ -369,11 +369,14 @@ Two charts and a table over the same 7/14/30/90-day/all window:
 | 用户活跃热力图 | 谁在哪一天在忙 —— 用户 × 天，颜色越深调用越多 |
 | 用户 × Skill 调用 | 每位用户的 Skill 构成绝对量 |
 
-The heatmap has a **Skill filter**. Left at 全部 Skill it shows every call;
-picking one Skill narrows it to the days that person actually used that
-Skill, which answers "code-review 是谁在哪几天在跑" directly. The filter
-scopes the heatmap only — the stacked chart and the table keep the full
-picture.
+热力图是**完整矩阵**：每一位用户的每一天都有一个格子，**0 次调用也参与色阶**，
+落在最浅一档。所以留白不再有歧义——浅色就是"几乎没有"，深色是"用得多"。
+（之前的版本直接跳过 0 值的格子，把它们留成空白，既不在色阶里也看不出是 0。）
+
+它的 **Skill 筛选**会进一步收窄范围：选中某个 Skill 后，只有真正用过它的日子
+才会离开最浅档，剩下的仍以最浅色显示，直接回答"code-review 是谁在哪几天在跑"。
+
+筛选只作用于热力图；用户 × Skill 图和概览表保持全量口径。
 
 下面是 用户概览 表：总调用 / 活跃天数 / 日均 / 主要工具 / 主要 Skill，
 可排序。「主要工具」会跳过 `skill` 合成桶——它已经单独出现在「主要 Skill」
