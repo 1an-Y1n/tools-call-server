@@ -258,9 +258,9 @@ internet needed at view time; `GET /` redirects here). Layout: KPI cards on top
 the total Skill 调用趋势, the per-skill trends of the six most used skills,
 and the 最常用的 Skill ranking with a sortable table; a 7/14/30/90-day/all
 window switch), 调用分析 (Skill-focused drill-down — 调用趋势, 谁在用 and a
-统计表 over 时间 × 用户 × 项目), 用户分析 (five charts, see
-[用户分析](#用户分析); admins can pick any user, regular users are locked to
-their own records), 用户管理 (admin-only account management, see
+统计表 over 时间 × 用户 × 项目), 用户分析 (activity heatmap with a Skill filter, a Skill breakdown, and a
+per-user overview, see [用户分析](#用户分析); admins can pick any user, regular
+users are locked to their own records), 用户管理 (admin-only account management, see
 [用户管理 tab](#用户管理-tab)), 账号 (change own password; admins additionally
 get the SMTP and schedule cards). Data is embedded server-side on load and
 refreshed via `/v1/stats` every 30 s (toggle) or on demand. Requires login; the
@@ -332,10 +332,10 @@ so a hundred-row result does not stretch the page to several thousand pixels.
 Clicking a Skill bar in the overview opens this page with that Skill
 selected.
 
-**The trend chart changes shape with the filters.** With 全部用户 it shows the
-total; with one user selected and 全部项目 it breaks the window down into the
-**ten most used Skills**, one coloured line each, so the shape of each Skill's
-usage is visible instead of a single aggregate line. Picking a specific
+**The trend chart changes shape with the filters.** With 项目 set to 全部项目
+it breaks the window down into the **five most used Skills**, one coloured
+line each, so the shape of each Skill's usage is visible instead of a single
+aggregate line — for 全部用户 and for a single user alike. Picking a specific
 项目 returns to the single line. The 谁在用 chart is hidden when a single user
 is selected — it would only ever show that one person.
 
@@ -344,24 +344,26 @@ previous window of the same user and item.
 
 ### 用户分析
 
-Five charts over the same 7/14/30/90-day/all window, each answering a
-different question:
+Two charts and a table over the same 7/14/30/90-day/all window:
 
 | 图表 | 回答 |
 | --- | --- |
 | 用户活跃热力图 | 谁在哪一天在忙 —— 用户 × 天，颜色越深调用越多 |
-| 用户调用趋势 | 每位用户的用量走势，调用最多的 8 位并排对比 |
-| 用户工具构成 | 100% 堆叠 —— 每个人**自己**的工具构成比例，看出偏好差异 |
-| 用户 × 工具调用 | 绝对量堆叠，含绿色的 `skill` 汇总桶 |
-| 用户 × Skill 调用 | 同上，按 Skill 拆分 |
+| 用户 × Skill 调用 | 每位用户的 Skill 构成绝对量 |
+
+The heatmap has a **Skill filter**. Left at 全部 Skill it shows every call;
+picking one Skill narrows it to the days that person actually used that
+Skill, which answers "code-review 是谁在哪几天在跑" directly. The filter
+scopes the heatmap only — the stacked chart and the table keep the full
+picture.
 
 下面是 用户概览 表：总调用 / 活跃天数 / 日均 / 主要工具 / 主要 Skill，
 可排序。「主要工具」会跳过 `skill` 合成桶——它已经单独出现在「主要 Skill」
 一列里。
 
-All five charts read from the per-day buckets (`user_tool_days`,
+Both charts read from the per-day buckets (`user_tool_days`,
 `user_skill_days`) instead of the all-time `user_tools` / `user_skills`, so
-changing the window re-scopes every chart on the page at once.
+changing the window re-scopes the page at once.
 
 ### Admin / account endpoints
 

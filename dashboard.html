@@ -539,31 +539,15 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
       </div>
       <div class="toolbar" id="user-sel-wrap">
         <label>用户 <select id="user-sel"><option value="__all__">全部用户</option></select></label>
+        <label>Skill <select id="ua-skill-sel"><option value="__all__">全部 Skill</option></select></label>
       </div>
       <div id="c-ua-heat" class="chart"></div>
       <div class="chart-note" id="ua-note"></div>
     </div>
 
-    <div class="grid2">
-      <div class="card">
-        <div class="card-head"><div class="ttl">用户调用趋势</div></div>
-        <div id="c-ua-trend" class="chart"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="ttl">用户工具构成</div></div>
-        <div id="c-ua-mix" class="chart"></div>
-      </div>
-    </div>
-
-    <div class="grid2">
-      <div class="card">
-        <div class="card-head"><div class="ttl">用户 × 工具调用</div></div>
-        <div id="c-user-tools" class="chart lg"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="ttl">用户 × Skill 调用</div></div>
-        <div id="c-user-skills" class="chart lg"></div>
-      </div>
+    <div class="card">
+      <div class="card-head"><div class="ttl">用户 × Skill 调用</div></div>
+      <div id="c-user-skills" class="chart lg"></div>
     </div>
 
     <div class="card">
@@ -1466,15 +1450,15 @@ function renderAnalysisTab(d){
   const grand = anTotalCounts(d, kind, user, keys, days, gran);
   const sum = grand.reduce((a,b) => a + b, 0);
 
-  // One user plus "全部项目" reads better as a breakdown than as a single
-  // aggregate line: show the ten most used items as separate lines.
-  const breakdown = user !== "__all__" && AN.item === "__all__";
+  // "全部项目" reads better as a breakdown than as one aggregate line: show
+  // the five most used items as separate lines.
+  const breakdown = AN.item === "__all__";
   let values, topSeries = null;
   if (breakdown){
     topSeries = items.map(name => {
       const counts = anItemCounts(d, kind, user, name, keys, days, gran);
       return {name, data:counts, total:counts.reduce((a,b) => a + b, 0)};
-    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, 10);
+    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, 5);
     draw("c-an-daily", optMultiLine(labels,
           topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
     values = topSeries.map(x => x.total);
@@ -1628,7 +1612,7 @@ function sparkline(vals, color){
 }
 
 // ---- 用户分析 -------------------------------------------------------------
-const UA = { window:30, sort:{key:"n", dir:"desc"} };
+const UA = { window:30, skill:"__all__", sort:{key:"n", dir:"desc"} };
 
 // The window every chart on this page shares.
 function uaDays(d){
@@ -1657,7 +1641,7 @@ function uaItems(d, days, kind){
   });
   return out;
 }
-// person -> {day: count} inside the window.
+// person -> {day: count} inside the window (all activity).
 function uaDaily(d, days){
   const src = d.user_tool_days || {};
   const inWindow = new Set(days);
@@ -1683,26 +1667,60 @@ function renderUserTab(d){
   const toolItems = uaItems(d, days, "tool");
   const skillItems = uaItems(d, days, "skill");
 
-  const hint = document.getElementById("ua-hint");
-  const total = shown.reduce((s,p) => s + Object.values(daily[p] || {}).reduce((x,y)=>x+y,0), 0);
-  hint.textContent = `${days.length} 天 · ${shown.length} 位用户 · 共 ${total.toLocaleString()} 次`;
+  // the skill filter only scopes the heatmap
+  const skillSel = document.getElementById("ua-skill-sel");
+  const skills = Object.keys(d.by_skill || {}).sort();
+  if (!skills.includes(UA.skill)) UA.skill = "__all__";
+  skillSel.innerHTML = '<option value="__all__">全部 Skill</option>' +
+    skills.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  skillSel.value = UA.skill;
 
-  renderUserHeat(d, days, daily, shown);
-  renderUserTrend(d, days, daily, shown);
-  renderUserMix(d, days, toolItems, shown);
-  renderUserStack(d, days, toolItems, skillItems, shown);
+  const heat = uaHeatSource(d, days, shown);
+  const heatPersons = shown.filter(p => Object.keys(heat[p] || {}).length > 0);
+  const heatTotal = heatPersons.reduce((s,p) =>
+    s + Object.values(heat[p] || {}).reduce((x,y)=>x+y,0), 0);
+
+  const hint = document.getElementById("ua-hint");
+  hint.textContent = UA.skill === "__all__"
+    ? `${days.length} 天 · ${heatPersons.length} 位用户 · 共 ${heatTotal.toLocaleString()} 次`
+    : `${days.length} 天 · ${heatPersons.length} 位用户 · 「${UA.skill}」共 ${heatTotal.toLocaleString()} 次`;
+
+  renderUserHeat(d, days, heat, heatPersons);
+  renderUserStack(d, shown, skillItems);
   renderUserTable(d, days, daily, toolItems, skillItems, shown);
 }
 
+// person -> {day: n}, either all activity or one skill.
+function uaHeatSource(d, days, persons){
+  const inWindow = new Set(days);
+  const out = {};
+  persons.forEach(p => {
+    const acc = {};
+    if (UA.skill === "__all__"){
+      Object.keys(d.user_tool_days?.[p] || {}).forEach(item => {
+        const per = d.user_tool_days[p][item] || {};
+        Object.keys(per).forEach(day => {
+          if (inWindow.has(day)) acc[day] = (acc[day] || 0) + per[day];
+        });
+      });
+    } else {
+      const per = (d.user_skill_days?.[p] || {})[UA.skill] || {};
+      Object.keys(per).forEach(day => { if (inWindow.has(day)) acc[day] = (acc[day] || 0) + per[day]; });
+    }
+    out[p] = acc;
+  });
+  return out;
+}
+
 // Who was busy on which day.
-function renderUserHeat(d, days, daily, persons){
+function renderUserHeat(d, days, heat, persons){
   // the y axis starts at the bottom, so reverse to put the busiest user on top
   const rows = persons.slice().reverse();
   const labels = rows.map(p => userShort(d, p));
   const cells = [];
   let max = 0;
   rows.forEach((p, yi) => {
-    const per = daily[p] || {};
+    const per = heat[p] || {};
     days.forEach((day, xi) => {
       const n = per[day] || 0;
       if (n > max) max = n;
@@ -1710,64 +1728,20 @@ function renderUserHeat(d, days, daily, persons){
     });
   });
   draw("c-ua-heat", optHeatmap(days.map(x => x.slice(5)), labels, cells, max));
-  const active = cells.length;
-  document.getElementById("ua-note").innerHTML =
-    `共 <b>${active}</b> 个「用户 × 天」有调用记录，颜色越深调用越多（峰值 ${max} 次/天）。` +
-    `工作日与周末的节奏差异在「总览」的工作日/周末日均里可以直接对比。`;
+  document.getElementById("ua-note").innerHTML = UA.skill === "__all__"
+    ? `共 <b>${cells.length}</b> 个「用户 × 天」有调用记录，颜色越深调用越多（峰值 ${max} 次/天）。`
+    : `只看 <b>${esc(UA.skill)}</b>：共 <b>${cells.length}</b> 个「用户 × 天」用过它（峰值 ${max} 次/天）。`;
 }
 
-// The busiest users side by side over time.
-function renderUserTrend(d, days, daily, persons){
-  const top = persons.slice(0, 8);
-  const series = top.map((p, i) => ({
-    name: userShort(d, p),
-    data: days.map(day => (daily[p] || {})[day] || 0),
-    color: PAL[i % PAL.length]
-  }));
-  draw("c-ua-trend", optMultiLine(days.map(x => x.slice(5)), series));
-}
-
-// How each person's tool mix is composed — share of their own calls.
-function renderUserMix(d, days, toolItems, persons){
-  const totals = {};
-  persons.forEach(p => {
-    totals[p] = Object.values(toolItems[p] || {}).reduce((x,y)=>x+y,0);
-  });
+// Each person's skill mix, inside the same window.
+function renderUserStack(d, persons, skillItems){
   const itemTotals = {};
-  persons.forEach(p => Object.entries(toolItems[p] || {}).forEach(([item,n]) => {
+  persons.forEach(p => Object.entries(skillItems[p] || {}).forEach(([item,n]) => {
     itemTotals[item] = (itemTotals[item] || 0) + n;
   }));
-  const topItems = Object.keys(itemTotals).sort((a,b) => itemTotals[b] - itemTotals[a]).slice(0, 8);
-  const series = topItems.map(item => ({
-    name: item,
-    data: persons.map(p => totals[p] ? (toolItems[p]?.[item] || 0) / totals[p] * 100 : 0)
-  }));
-  // the rest of the calls, so every column reaches 100%
-  const covered = persons.map(p => topItems.reduce((t, item) => t + (toolItems[p]?.[item] || 0), 0));
-  series.push({
-    name: "其他",
-    data: persons.map((p, i) => totals[p] ? Math.max(0, 100 - covered[i] / totals[p] * 100) : 0)
-  });
-  draw("c-ua-mix", optStack(persons.map(p => userShort(d, p)), series, {pct:true}));
-}
-
-// The two original stacked charts, now inside the same window.
-function renderUserStack(d, days, toolItems, skillItems, persons){
-  const build = (items, kind) => {
-    const totals = {};
-    persons.forEach(p => {
-      totals[p] = Object.values(items[p] || {}).reduce((x,y)=>x+y,0);
-    });
-    const itemTotals = {};
-    persons.forEach(p => Object.entries(items[p] || {}).forEach(([item,n]) => {
-      itemTotals[item] = (itemTotals[item] || 0) + n;
-    }));
-    const top = Object.keys(itemTotals).sort((a,b) => itemTotals[b] - itemTotals[a]).slice(0, 8);
-    return optStack(persons.map(p => userShort(d, p)),
-      top.map(item => ({name:item, data:persons.map(p => (items[p] || {})[item] || 0)})));
-  };
-  draw("c-user-tools", build(toolItems, "tool"));
-  draw("c-user-skills", build(skillItems, "skill"));
+  const top = Object.keys(itemTotals).sort((a,b) => itemTotals[b] - itemTotals[a]).slice(0, 8);
+  draw("c-user-skills", optStack(persons.map(p => userShort(d, p)),
+    top.map(item => ({name:item, data:persons.map(p => (skillItems[p] || {})[item] || 0)}))));
 }
 
 // One row per user: the numbers no chart conveys well.
@@ -2829,6 +2803,10 @@ document.getElementById("ua-window").addEventListener("click", ev => {
   if (!btn) return;
   UA.window = parseInt(btn.dataset.days, 10) || 0;
   document.querySelectorAll("#ua-window button").forEach(b => b.classList.toggle("on", b === btn));
+  renderUserTab(DATA);
+});
+document.getElementById("ua-skill-sel").addEventListener("change", ev => {
+  UA.skill = ev.target.value;
   renderUserTab(DATA);
 });
 
