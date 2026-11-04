@@ -244,6 +244,9 @@ Aggregated counts: total records, per-tool counts, per-skill counts, per-day cou
 The user dimension uses the [person key](#who-a-record-belongs-to)
 (`COALESCE(email, user)`), and the payload adds `person_names` — a map from
 person key to the display name the collector reported.
+Hourly buckets (`by_hour`, `tool_hours`, `skill_hours`, `user_tool_hours`,
+`user_skill_hours`) are included for the last two days only — see
+[时间窗口与粒度](#时间窗口与粒度).
 Requires login; admins get all data, regular users get only their own records
 (the dashboard's auto-refresh redirects to `/login` on a 401).
 
@@ -251,15 +254,13 @@ Requires login; admins get all data, regular users get only their own records
 
 HTML dashboard (light theme, ECharts served locally from `static/` — no CDN or
 internet needed at view time; `GET /` redirects here). Layout: KPI cards on top
-(total / clients / users / last timestamp), then tabs — 总览 (daily trend with a
-7-day moving average and a 14/30/90-day/all window switch, plus one 调用分布
-card that toggles between 工具 and Skill and carries both the ranking bars and
-a sortable detail table), 调用分析 (the merged Tool + Skill page — daily
-drill-downs filterable by 时间范围 × 用户 × 项目 with 7/14/30/90/180/365-day
-windows, period-over-period metrics, a window ranking chart, a 「谁在用」
-breakdown and a 统计表 over 时间 × 用户 × 项目), 用户分析 (user × tool /
-user × skill stacked charts + tables; admins can pick any user, regular users
-are locked to their own records), 用户管理 (admin-only account management, see
+(total / clients / users / last timestamp), then tabs — 总览 (skill-centric:
+the total Skill 调用趋势, the per-skill trends of the six most used skills,
+and the 最常用的 Skill ranking with a sortable table; a 7/14/30/90-day/all
+window switch), 调用分析 (Skill-focused drill-down — 调用趋势, 谁在用 and a
+统计表 over 时间 × 用户 × 项目), 用户分析 (user × tool / user × skill stacked
+charts; admins can pick any user, regular users are locked to their own
+records), 用户管理 (admin-only account management, see
 [用户管理 tab](#用户管理-tab)), 账号 (change own password; admins additionally
 get the SMTP and schedule cards). Data is embedded server-side on load and
 refreshed via `/v1/stats` every 30 s (toggle) or on demand. Requires login; the
@@ -284,26 +285,52 @@ hairline axes, one brand blue and one skill green). Reading notes:
 - The window ranking chart dims every entry except the selected one, so the
   position of the current item is visible at a glance.
 
+### Skill first
+
+Skill usage is what the dashboard is about, so it leads:
+
+- **总览** shows the total Skill 调用趋势, one line per Skill for the six most
+  used Skills, and the 最常用的 Skill ranking with a sortable table. Tool
+  statistics are not on this page.
+- **调用分析** defaults to the Skill dimension; the 工具 switch is still there
+  for the occasional tool question, but nothing about the page is built around
+  it.
+
+To keep the number of tables down, the detail tables that used to sit under
+the 用户分析 charts were removed — the same 用户 × 项目 numbers live in the
+调用分析 统计表, where the filters apply.
+
+### 时间窗口与粒度
+
+The window and the axis granularity are separate, so the chart always shows
+usable resolution:
+
+| 窗口 | 粒度 |
+| --- | --- |
+| 1–2 天 | 按小时 |
+| 3–90 天 | 按天 |
+| 半年 / 一年 / 全部 | 按周 |
+
+Hourly buckets need the raw timestamps, so `compute_stats` ships them for the
+last two days only (`by_hour`, `tool_hours`, `skill_hours`, `user_tool_hours`,
+`user_skill_hours`); everything longer is derived from the daily buckets. The
+embedded stats payload grows from ~40 KB to ~53 KB.
+
 ### 调用分析 and the 统计表
 
 Tool 分析 and Skill 分析 were two near-identical pages; they are now one
-**调用分析** tab with a 工具 / Skill switch. Every filter applies to the whole
-page: 用户, 项目 (全部 or a specific tool/skill) and 时间窗口 (7 to 365 days).
-"全部项目" aggregates over the dimension, so the trend, the metrics, the
-ranking and the table all work with or without a specific item.
+**调用分析** tab. Every filter applies to the whole page: 用户, 项目 (全部 or a
+specific tool/skill) and 时间窗口 (1 to 365 days). "全部项目" aggregates over
+the dimension, so the trend, the metrics and the table all work with or
+without a specific item.
 
-The **统计表** at the bottom answers "任意时间 × 用户 × 项目":
-
-- **明细（用户 × 项目）** — one row per pair, with 次数 / 占比 / 日均 and an
-  inline sparkline of that pair's daily usage. Sortable by any column.
-- **交叉表（用户 × 项目）** — users down the rows, items across the columns,
-  with row and column totals. The first column stays put while the table
-  scrolls sideways.
-
-The table lives in a fixed-height scroll box with a sticky header, so a
-hundred-row result does not stretch the page to several thousand pixels.
-Clicking a bar in the overview's 调用分布 chart opens this page with the
-matching item selected.
+The **统计表** at the bottom answers "任意时间 × 用户 × 项目": users down the
+rows, items across the columns, with row and column totals and a per-user
+trend sparkline at the end. The first column stays put while the table scrolls
+sideways, and the table sits in a fixed-height scroll box with a sticky header
+so a hundred-row result does not stretch the page to several thousand pixels.
+Clicking a Skill bar in the overview opens this page with that Skill
+selected.
 
 ### Admin / account endpoints
 

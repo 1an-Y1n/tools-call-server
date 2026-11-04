@@ -1301,11 +1301,17 @@ def _collected_email(conn, person):
     return row[0] if row and row[0] else None
 
 
+# Hourly buckets are only shipped for the last few days — that is the only
+# range where an hourly axis is finer than a daily one.
+HOUR_SPAN_DAYS = 2
+
+
 def compute_stats(user=None):
     flt = f" AND {PERSON_SQL} = ?" if user else ""
     args = [user] if user else []
     where_u = f" WHERE {PERSON_SQL} = ?" if user else ""
     person_not_null = f" AND ({PERSON_SQL}) IS NOT NULL"
+    HOUR_CUT = (datetime.now(timezone.utc) - timedelta(days=HOUR_SPAN_DAYS)).strftime("%Y-%m-%dT%H")
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
         total = conn.execute(f"SELECT COUNT(*) AS n FROM events{where_u}", args).fetchone()["n"]
@@ -1380,6 +1386,39 @@ def compute_stats(user=None):
             " GROUP BY person, skill, skill_command, day",
             args,
         ).fetchall()
+        # Hourly buckets for the last couple of days. A one- or two-day
+        # window collapses into a single daily bar, and the shape of a
+        # working day is what people ask about at that range. Bounded so the
+        # embedded stats payload stays small.
+        where_hour = " WHERE timestamp >= ?" + (f" AND {PERSON_SQL} = ?" if user else "")
+        hour_args = [HOUR_CUT] + args
+        by_hour_rows = conn.execute(
+            f"SELECT substr(timestamp, 1, 13) AS hour, COUNT(*) AS n FROM events{where_hour}"
+            f"{person_not_null} GROUP BY hour ORDER BY hour", hour_args).fetchall()
+        tool_hour_rows = conn.execute(
+            "SELECT CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
+            " substr(timestamp, 1, 13) AS hour, COUNT(*) AS n FROM events"
+            " WHERE type IN ('tool_call', 'skill_invoke')"
+            " AND (type = 'skill_invoke' OR tool_name IS NOT NULL) AND timestamp >= ?"
+            + (f" AND {PERSON_SQL} = ?" if user else "")
+            + person_not_null + " GROUP BY tool, hour", hour_args).fetchall()
+        skill_hour_rows = conn.execute(
+            "SELECT skill, skill_command, substr(timestamp, 1, 13) AS hour, COUNT(*) AS n FROM events"
+            " WHERE type = 'skill_invoke' AND timestamp >= ?"
+            + (f" AND {PERSON_SQL} = ?" if user else "")
+            + person_not_null + " GROUP BY skill, skill_command, hour", hour_args).fetchall()
+        user_tool_hour_rows = conn.execute(
+            f"SELECT {PERSON_SQL} AS person, CASE WHEN type = 'skill_invoke' THEN 'skill' ELSE tool_name END AS tool,"
+            " substr(timestamp, 1, 13) AS hour, COUNT(*) AS n FROM events"
+            " WHERE type IN ('tool_call', 'skill_invoke')"
+            " AND (type = 'skill_invoke' OR tool_name IS NOT NULL) AND timestamp >= ?"
+            + (f" AND {PERSON_SQL} = ?" if user else "")
+            + person_not_null + " GROUP BY person, tool, hour", hour_args).fetchall()
+        user_skill_hour_rows = conn.execute(
+            f"SELECT {PERSON_SQL} AS person, skill, skill_command, substr(timestamp, 1, 13) AS hour,"
+            " COUNT(*) AS n FROM events WHERE type = 'skill_invoke' AND timestamp >= ?"
+            + (f" AND {PERSON_SQL} = ?" if user else "")
+            + person_not_null + " GROUP BY person, skill, skill_command, hour", hour_args).fetchall()
         last = conn.execute(f"SELECT MAX(timestamp) AS ts FROM events{where_u}", args).fetchone()["ts"]
         tool_days, user_tools, user_skills, skill_days = {}, {}, {}, {}
         user_tool_days, user_skill_days = {}, {}
@@ -1410,6 +1449,23 @@ def compute_stats(user=None):
             per_label_days = user_skill_days.setdefault(r["person"], {}).setdefault(label, {})
             per_label_days[r["day"]] = per_label_days.get(r["day"], 0) + r["n"]
 
+        by_hour = {r["hour"]: r["n"] for r in by_hour_rows}
+        tool_hours, skill_hours = {}, {}
+        user_tool_hours, user_skill_hours = {}, {}
+        for r in tool_hour_rows:
+            tool_hours.setdefault(r["tool"], {})[r["hour"]] = r["n"]
+        for r in skill_hour_rows:
+            label = skill_label(r["skill"], r["skill_command"])
+            per_label_hours = skill_hours.setdefault(label, {})
+            per_label_hours[r["hour"]] = per_label_hours.get(r["hour"], 0) + r["n"]
+        for r in user_tool_hour_rows:
+            per_user_hours = user_tool_hours.setdefault(r["person"], {}).setdefault(r["tool"], {})
+            per_user_hours[r["hour"]] = per_user_hours.get(r["hour"], 0) + r["n"]
+        for r in user_skill_hour_rows:
+            label = skill_label(r["skill"], r["skill_command"])
+            per_user_hours = user_skill_hours.setdefault(r["person"], {}).setdefault(label, {})
+            per_user_hours[r["hour"]] = per_user_hours.get(r["hour"], 0) + r["n"]
+
     def _valid_day(day):
         return bool(day) and len(day) == 10 and day[4] == "-" and day[7] == "-"
 
@@ -1427,6 +1483,11 @@ def compute_stats(user=None):
         "user_skills": user_skills,
         "user_tool_days": user_tool_days,
         "user_skill_days": user_skill_days,
+        "by_hour": by_hour,
+        "tool_hours": tool_hours,
+        "skill_hours": skill_hours,
+        "user_tool_hours": user_tool_hours,
+        "user_skill_hours": user_skill_hours,
         "last_timestamp": last,
     }
 
