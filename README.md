@@ -333,11 +333,13 @@ Clicking a Skill bar in the overview opens this page with that Skill
 selected.
 
 **The trend chart changes shape with the filters.** With 项目 set to 全部项目
-it breaks the window down into the **five most used Skills**, one coloured
-line each, so the shape of each Skill's usage is visible instead of a single
-aggregate line — for 全部用户 and for a single user alike. Picking a specific
-项目 returns to the single line. The 谁在用 chart is hidden when a single user
-is selected — it would only ever show that one person.
+it breaks the window down into the most used Skills, one coloured line each,
+so the shape of each Skill's usage is visible instead of a single aggregate
+line — for 全部用户 and for a single user alike. **分列** in the toolbar picks
+how many lines: Top 3 / 5 / 8 / 10 (default 5). Picking a specific 项目
+returns to the single line and disables that control. The 谁在用 chart is
+hidden when a single user is selected — it would only ever show that one
+person.
 
 The period-over-period metric compares the same scope as the chart: the
 previous window of the same user and item.

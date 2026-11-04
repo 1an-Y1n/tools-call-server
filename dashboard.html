@@ -503,6 +503,14 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
             <option value="365">最近一年</option>
           </select>
         </label>
+        <label id="an-top-wrap" title="项目选「全部项目」时，把趋势拆成调用最多的 N 个项目">分列
+          <select id="an-top-sel">
+            <option value="3">Top 3</option>
+            <option value="5" selected>Top 5</option>
+            <option value="8">Top 8</option>
+            <option value="10">Top 10</option>
+          </select>
+        </label>
         <span class="muted" id="an-hint"></span>
       </div>
       <div id="c-an-daily" class="chart"></div>
@@ -1396,7 +1404,7 @@ function renderOverviewRank(d, days){
 
 // ---- 调用分析 (Skill 优先) ----------------------------------------------
 const AN = {
-  kind:"skill", user:"__all__", item:"__all__", days:14,
+  kind:"skill", user:"__all__", item:"__all__", days:14, topN:5,
   sort:{key:"n", dir:"desc"}
 };
 
@@ -1451,14 +1459,17 @@ function renderAnalysisTab(d){
   const sum = grand.reduce((a,b) => a + b, 0);
 
   // "全部项目" reads better as a breakdown than as one aggregate line: show
-  // the five most used items as separate lines.
+  // the N most used items as separate lines, N chosen in the toolbar.
   const breakdown = AN.item === "__all__";
+  const topSel = document.getElementById("an-top-sel");
+  topSel.disabled = !breakdown;
+  document.getElementById("an-top-wrap").style.opacity = breakdown ? "" : ".5";
   let values, topSeries = null;
   if (breakdown){
     topSeries = items.map(name => {
       const counts = anItemCounts(d, kind, user, name, keys, days, gran);
       return {name, data:counts, total:counts.reduce((a,b) => a + b, 0)};
-    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, 5);
+    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, AN.topN);
     draw("c-an-daily", optMultiLine(labels,
           topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
     values = topSeries.map(x => x.total);
@@ -1474,7 +1485,7 @@ function renderAnalysisTab(d){
   const what = AN.item === "__all__" ? "全部项目" : AN.item;
   document.getElementById("an-hint").textContent =
     `${who}${what} · 最近 ${n} 天共 ${sum} 次` +
-    (topSeries ? ` · 按使用最多的 ${topSeries.length} 个${kind === "skill" ? "Skill" : "工具"}分列` : "");
+    (topSeries ? ` · 按使用最多的 ${topSeries.length} 个 ${kind === "skill" ? "Skill" : "工具"} 分列` : "");
   document.getElementById("an-gran").textContent = GRAN_LABEL[gran];
 
   const prevSum = periodSum(d, kind, user, AN.item, n);
@@ -2783,6 +2794,10 @@ document.getElementById("an-item-sel").addEventListener("change", ev => {
 });
 document.getElementById("an-days-sel").addEventListener("change", ev => {
   AN.days = parseInt(ev.target.value, 10) || 14;
+  renderAnalysisTab(DATA);
+});
+document.getElementById("an-top-sel").addEventListener("change", ev => {
+  AN.topN = parseInt(ev.target.value, 10) || 5;
   renderAnalysisTab(DATA);
 });
 document.getElementById("an-kind").addEventListener("click", ev => {
