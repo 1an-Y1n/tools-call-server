@@ -503,12 +503,12 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
             <option value="365">最近一年</option>
           </select>
         </label>
-        <label id="an-top-wrap" title="把趋势拆成多条线：全部项目时按项目拆，指定项目时按用户拆">分列
+        <label id="an-top-wrap" title="多条线时最多画多少条；「全部」不限制">显示
           <select id="an-top-sel">
-            <option value="3">Top 3</option>
-            <option value="5" selected>Top 5</option>
-            <option value="8">Top 8</option>
-            <option value="10">Top 10</option>
+            <option value="3">前 3 条</option>
+            <option value="5" selected>前 5 条</option>
+            <option value="10">前 10 条</option>
+            <option value="0">全部</option>
           </select>
         </label>
         <span class="muted" id="an-hint"></span>
@@ -951,9 +951,17 @@ function optBarH(rows, color, opts){
   };
 }
 
-// One line per skill — the shape of each skill over time. No symbols and no
-// area fill: with six series the fills would muddy the chart.
-function optMultiLine(buckets, series){
+// Beyond the palette, keep hues apart with the golden angle.
+function seriesColor(i){
+  if (i < PAL.length) return PAL[i];
+  return `hsl(${Math.round((i * 137.508) % 360)} 62% 52%)`;
+}
+
+// One line per series. No symbols and no area fill: with many series the
+// fills would muddy the chart. Passing `highlight` fades every other line so
+// one of them can be read on its own.
+function optMultiLine(buckets, series, opts){
+  const hl = (opts || {}).highlight || null;
   return {
     grid:{left:8,right:46,top:36,bottom:8,containLabel:true},
     tooltip:{trigger:"axis",
@@ -965,9 +973,22 @@ function optMultiLine(buckets, series){
       axisLabel:{color:CH.text,fontSize:11,hideOverlap:true,
                  alignMinLabel:"left", alignMaxLabel:"right"}}, axisCommon()),
     yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:CH.split}}}, axisCommon()),
-    series: series.map((s,i) => ({name:s.name,type:"line",smooth:true,symbol:"none",data:s.data,
-      lineStyle:{width:2,color:s.color || PAL[i % PAL.length]},
-      itemStyle:{color:s.color || PAL[i % PAL.length]}}))
+    series: series.map((s,i) => {
+      const color = s.color || seriesColor(i);
+      const dim = hl && hl !== s.name;
+      // dimmed lines go grey rather than transparent: they stay traceable
+      // while the highlighted one clearly leads
+      const dimColor = "#aeb6c2";
+      return {name:s.name,type:"line",smooth:true,symbol:"none",data:s.data,
+        // without symbols the line itself has no hit target — this makes the
+        // stroke clickable, which the highlight-on-click depends on
+        triggerLineEvent:true,
+        cursor:"pointer",
+        z: dim ? 2 : 5,
+        lineStyle:{width: dim ? 1.5 : 2.5, color: dim ? dimColor : color, opacity: dim ? 0.9 : 1},
+        itemStyle:{color: dim ? dimColor : color, opacity: 1},
+        emphasis:{focus:"series", lineStyle:{width:3}}};
+    })
   };
 }
 
@@ -1410,7 +1431,10 @@ function renderOverviewRank(d, days){
 
 // ---- 调用分析 (Skill 优先) ----------------------------------------------
 const AN = {
-  kind:"skill", user:"__all__", item:"__all__", days:14, topN:5,
+  kind:"skill", user:"__all__", item:"__all__", days:14,
+  topN:5,            // 0 = 不限条数
+  highlight:null,    // name of the highlighted line, null = none
+  lineNames:[],      // series currently drawn, drives the highlight toggle
   // null = follow the trend window; set by the table's own date inputs
   tableFrom:null, tableTo:null,
   sort:{key:"n", dir:"desc"}
@@ -1464,57 +1488,64 @@ function renderAnalysisTab(d){
   const keys = anBucketKeys(d, kind, user, n, gran);
   const labels = keys.map(k => bucketLabel(k, gran));
   const grand = anTotalCounts(d, kind, user, keys, days, gran);
-  const sum = grand.reduce((a,b) => a + b, 0);
-
-  // Two ways to break the trend into lines, both capped by the 分列 selector:
-  //   全部项目        -> the N most used items
-  //   指定项目 + 全部用户 -> the N most active users for that item
-  // anything else is a single line by definition.
-  const byItem = AN.item === "__all__";
-  const byUser = AN.item !== "__all__" && user === "__all__";
-  const split = byItem || byUser;
-  const topSel = document.getElementById("an-top-sel");
-  topSel.disabled = !split;
-  document.getElementById("an-top-wrap").style.opacity = split ? "" : ".5";
-  let topSeries = null;
-  if (byItem){
-    topSeries = items.map(name => {
-      const counts = anItemCounts(d, kind, user, name, keys, days, gran);
-      return {name, data:counts, total:counts.reduce((a,b) => a + b, 0)};
-    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, AN.topN);
-    draw("c-an-daily", optMultiLine(labels,
-          topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
-  } else if (byUser){
-    const people = Object.keys(kind === "skill"
-      ? (d.user_skill_days || {}) : (d.user_tool_days || {}));
-    topSeries = people.map(p => {
-      const counts = anItemCounts(d, kind, p, AN.item, keys, days, gran);
-      return {name:userShort(d, p), data:counts, total:counts.reduce((a,b) => a + b, 0)};
-    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, AN.topN);
-    draw("c-an-daily", optMultiLine(labels,
-          topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
-  } else {
-    const values = anItemCounts(d, kind, user, AN.item, keys, days, gran);
-    draw("c-an-daily", optLine(labels, values,
-          {ma: values.length > 7 ? movingAvg(values, 7) : null,
-           color: kind === "skill" ? CH.skill : CH.brand}));
-  }
-
-  // The headline numbers must match what the chart is about: with one item
-  // selected they describe that item, not every item.
-  const selArr = byItem ? grand
+  // What the headline numbers describe: one item, or everything for that
+  // user. Computed once so the chart and the metrics cannot drift apart.
+  const selArr = AN.item === "__all__" ? grand
     : anItemCounts(d, kind, user, AN.item, keys, days, gran);
   const selTotal = selArr.reduce((a,b) => a + b, 0);
 
+  // The chart has exactly one of four shapes:
+  //   全部项目 + 指定用户 -> 每个 Skill 一条线
+  //   指定项目 + 全部用户 -> 每位用户一条线
+  //   其余（全部/全部、指定/指定）-> 单条线
+  // The 显示 selector caps how many lines are drawn (0 = no cap).
+  const bySkill = AN.item === "__all__" && user !== "__all__";
+  const byUser  = AN.item !== "__all__" && user === "__all__";
+  const multi = bySkill || byUser;
+  const cap = AN.topN > 0 ? AN.topN : Infinity;
+
+  const topSel = document.getElementById("an-top-sel");
+  topSel.disabled = !multi;
+  document.getElementById("an-top-wrap").style.opacity = multi ? "" : ".5";
+
+  let lines = null;
+  if (bySkill){
+    lines = items.map(name => {
+      const counts = anItemCounts(d, kind, user, name, keys, days, gran);
+      return {name, data:counts, total:counts.reduce((a,b) => a + b, 0)};
+    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total);
+  } else if (byUser){
+    const people = Object.keys(kind === "skill"
+      ? (d.user_skill_days || {}) : (d.user_tool_days || {}));
+    lines = people.map(p => {
+      const counts = anItemCounts(d, kind, p, AN.item, keys, days, gran);
+      return {name:userShort(d, p), data:counts, total:counts.reduce((a,b) => a + b, 0)};
+    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total);
+  }
+
+  if (multi){
+    const drawn = lines.slice(0, cap);
+    // a highlight only survives while its line is still drawn
+    if (AN.highlight && !drawn.some(x => x.name === AN.highlight)) AN.highlight = null;
+    AN.lineNames = drawn.map(x => x.name);
+    draw("c-an-daily", optMultiLine(labels,
+          drawn.map((x,i) => ({...x, color:seriesColor(i)})),
+          {highlight: AN.highlight}));
+  } else {
+    AN.lineNames = [];
+    AN.highlight = null;
+    draw("c-an-daily", optLine(labels, selArr,
+          {ma: selArr.length > 7 ? movingAvg(selArr, 7) : null,
+           color: kind === "skill" ? CH.skill : CH.brand}));
+  }
+
   const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
   const what = AN.item === "__all__" ? "全部项目" : AN.item;
-  const splitNote = topSeries
-    ? (byItem
-        ? ` · 按使用最多的 ${topSeries.length} 个 ${kind === "skill" ? "Skill" : "工具"} 分列`
-        : ` · 按调用最多的 ${topSeries.length} 位用户分列`)
-    : "";
+  let lineNote = "";
+  if (bySkill) lineNote = ` · ${AN.lineNames.length} 条 Skill 曲线`;
+  else if (byUser) lineNote = ` · ${AN.lineNames.length} 位用户的曲线`;
   document.getElementById("an-hint").textContent =
-    `${who}${what} · 最近 ${n} 天共 ${selTotal} 次` + splitNote;
+    `${who}${what} · 最近 ${n} 天共 ${selTotal} 次` + lineNote;
   document.getElementById("an-gran").textContent = GRAN_LABEL[gran];
 
   // Averages and the period comparison are per bucket, so they must use the
@@ -1533,8 +1564,23 @@ function renderAnalysisTab(d){
   document.getElementById("an-users-card").hidden = user !== "__all__";
   if (user === "__all__")
     draw("c-an-users", optBarH(users, kind === "skill" ? CH.brand : CH.skill));
+  bindLineHighlight();
   syncTableRange(d);
   renderAnalysisTable(d, tableDays(d));
+}
+
+// Clicking a line emphasises it and fades the rest; clicking it again (or
+// clicking empty space) restores every line.
+function bindLineHighlight(){
+  const chart = chartCache["c-an-daily"];
+  if (!chart || chart.__hlBound) return;
+  chart.__hlBound = true;
+  chart.on("click", params => {
+    if (!AN.lineNames.length) return;           // single-line chart
+    if (params.componentType !== "series") return;
+    AN.highlight = AN.highlight === params.seriesName ? null : params.seriesName;
+    renderAnalysisTab(DATA);
+  });
 }
 
 // The table has its own date range: by default it follows the trend window,
@@ -2855,18 +2901,23 @@ renderAll(DATA);
 document.getElementById("an-user-sel").addEventListener("change", ev => {
   AN.user = ev.target.value;
   AN.item = "__all__";
+  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 document.getElementById("an-item-sel").addEventListener("change", ev => {
   AN.item = ev.target.value;
+  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 document.getElementById("an-days-sel").addEventListener("change", ev => {
   AN.days = parseInt(ev.target.value, 10) || 14;
+  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 document.getElementById("an-top-sel").addEventListener("change", ev => {
-  AN.topN = parseInt(ev.target.value, 10) || 5;
+  AN.topN = parseInt(ev.target.value, 10);   // 0 = 全部
+  if (isNaN(AN.topN)) AN.topN = 5;
+  AN.highlight = null;
   renderAnalysisTab(DATA);
 });
 // The table's own range. Both ends must be set before it takes effect.
@@ -2897,6 +2948,7 @@ document.getElementById("an-kind").addEventListener("click", ev => {
   if (!btn) return;
   AN.kind = btn.dataset.kind;
   AN.item = "__all__";
+  AN.highlight = null;
   AN.sort = {key:"n", dir:"desc"};
   document.querySelectorAll("#an-kind button").forEach(b => b.classList.toggle("on", b === btn));
   renderAnalysisTab(DATA);
