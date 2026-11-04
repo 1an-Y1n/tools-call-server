@@ -508,7 +508,7 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
       <div id="c-an-daily" class="chart"></div>
       <div class="metrics" id="an-metrics" style="margin-top:14px"></div>
     </div>
-    <div class="card">
+    <div class="card" id="an-users-card">
       <div class="card-head"><div class="ttl">谁在用</div></div>
       <div id="c-an-users" class="chart"></div>
     </div>
@@ -819,7 +819,8 @@ const CH = {
   brand:"#3b7ddd", skill:"#1d9e75", text:"#61666b", dim:"#81858c",
   axis:"#e1e5ee", split:"#f0f1f3", track:"#e6e9ef"
 };
-const PAL = ['#3b7ddd','#1d9e75','#e8a33d','#d4537e','#7f77dd','#43a7c4','#8fbf4d','#e07b58'];
+const PAL = ['#3b7ddd','#1d9e75','#e8a33d','#d4537e','#7f77dd',
+             '#43a7c4','#8fbf4d','#e07b58','#0e3074','#b8860b'];
 // green is reserved for the skill bucket, so the "tool" series never use it
 const PAL_TOOL = ['#3b7ddd','#e8a33d','#d4537e','#7f77dd','#43a7c4','#8fbf4d','#e07b58','#9aa4b2'];
 // the synthetic bucket that groups skill invocations inside the tool stats
@@ -1160,38 +1161,55 @@ function anHourSource(d, kind, user){
   return kind === "skill" ? ((d.user_skill_hours || {})[user] || {})
                            : ((d.user_tool_hours || {})[user] || {});
 }
-// {bucket: count} for the current selection at the requested granularity.
-function anBuckets(d, kind, user, item, days, gran){
-  const out = {};
+// The bucket keys for the current selection. Every series is built against
+// this one list, so the lines line up even when the hourly buckets of two
+// items do not cover the same hours.
+function anBucketKeys(d, kind, user, days, gran){
   if (gran === "hour"){
     const src = anHourSource(d, kind, user);
     const hours = new Set();
     Object.keys(src).forEach(name => Object.keys(src[name] || {}).forEach(h => hours.add(h)));
-    const list = [...hours].sort().slice(-days * 24);
-    list.forEach(h => { out[h] = 0; });
-    Object.keys(src).forEach(name => {
-      if (item !== "__all__" && name !== item) return;
-      const per = src[name] || {};
-      Object.keys(per).forEach(h => { if (h in out) out[h] += per[h]; });
+    return [...hours].sort().slice(-days * 24);
+  }
+  const dayList = dayListFor(d, days);
+  if (gran === "week"){
+    const keys = [], seen = new Set();
+    dayList.forEach(day => {
+      const k = isoWeek(day);
+      if (!seen.has(k)){ seen.add(k); keys.push(k); }
+    });
+    return keys.sort();
+  }
+  return dayList;
+}
+// Counts for one item against the shared bucket keys.
+function anItemCounts(d, kind, user, item, keys, days, gran){
+  const out = new Array(keys.length).fill(0);
+  const pos = new Map();
+  keys.forEach((k,i) => pos.set(k,i));
+  if (gran === "hour"){
+    const per = (anHourSource(d, kind, user) || {})[item] || {};
+    Object.keys(per).forEach(h => {
+      const i = pos.get(h);
+      if (i !== undefined) out[i] += per[h];
     });
     return out;
   }
-  const src = anDailySource(d, kind, user);
-  const dayList = dayListFor(d, days);
-  dayList.forEach(day => { out[day] = 0; });
-  Object.keys(src).forEach(name => {
-    if (item !== "__all__" && name !== item) return;
-    const per = src[name] || {};
-    Object.keys(per).forEach(day => { if (day in out) out[day] += per[day]; });
+  const per = (anDailySource(d, kind, user) || {})[item] || {};
+  Object.keys(per).forEach(day => {
+    const k = gran === "week" ? isoWeek(day) : day;
+    const i = pos.get(k);
+    if (i !== undefined) out[i] += per[day];
   });
-  if (gran === "week"){
-    const weekly = {};
-    Object.keys(out).forEach(day => {
-      const wk = isoWeek(day);
-      weekly[wk] = (weekly[wk] || 0) + out[day];
-    });
-    return weekly;
-  }
+  return out;
+}
+// Counts for every item of the current dimension, summed.
+function anTotalCounts(d, kind, user, keys, days, gran){
+  const out = new Array(keys.length).fill(0);
+  anItems(d, kind, user).forEach(name => {
+    anItemCounts(d, kind, user, name, keys, days, gran)
+      .forEach((v,i) => { out[i] += v; });
+  });
   return out;
 }
 function bucketLabel(b, gran){
@@ -1381,33 +1399,50 @@ function renderAnalysisTab(d){
   AN.item = sel.value;
 
   const days = dayListFor(d, n);
-  const buckets = anBuckets(d, kind, user, AN.item, n, gran);
-  const keys = Object.keys(buckets).sort();
-  const values = keys.map(k => buckets[k]);
-  draw("c-an-daily", optLine(keys.map(k => bucketLabel(k, gran)), values,
-        {ma: values.length > 7 ? movingAvg(values, 7) : null,
-         color: kind === "skill" ? CH.skill : CH.brand}));
+  const keys = anBucketKeys(d, kind, user, n, gran);
+  const labels = keys.map(k => bucketLabel(k, gran));
+  const grand = anTotalCounts(d, kind, user, keys, days, gran);
+  const sum = grand.reduce((a,b) => a + b, 0);
 
-  const sum = values.reduce((a,b) => a + b, 0);
+  // One user plus "全部项目" reads better as a breakdown than as a single
+  // aggregate line: show the ten most used items as separate lines.
+  const breakdown = user !== "__all__" && AN.item === "__all__";
+  let values, topSeries = null;
+  if (breakdown){
+    topSeries = items.map(name => {
+      const counts = anItemCounts(d, kind, user, name, keys, days, gran);
+      return {name, data:counts, total:counts.reduce((a,b) => a + b, 0)};
+    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, 10);
+    draw("c-an-daily", optMultiLine(labels,
+          topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
+    values = topSeries.map(x => x.total);
+  } else {
+    values = AN.item === "__all__" ? grand
+      : anItemCounts(d, kind, user, AN.item, keys, days, gran);
+    draw("c-an-daily", optLine(labels, values,
+          {ma: values.length > 7 ? movingAvg(values, 7) : null,
+           color: kind === "skill" ? CH.skill : CH.brand}));
+  }
+
   const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
   const what = AN.item === "__all__" ? "全部项目" : AN.item;
   document.getElementById("an-hint").textContent =
-    `${who}${what} · 最近 ${n} 天共 ${sum} 次`;
+    `${who}${what} · 最近 ${n} 天共 ${sum} 次` +
+    (topSeries ? ` · 按使用最多的 ${topSeries.length} 个${kind === "skill" ? "Skill" : "工具"}分列` : "");
   document.getElementById("an-gran").textContent = GRAN_LABEL[gran];
 
-  // period over period
-  const prevBuckets = anBuckets(d, kind, user, AN.item, n, gran);
-  const prevDays = dayListFor(d, n).map(x => x);   // same window, previous period
   const prevSum = periodSum(d, kind, user, AN.item, n);
   const users = anUserCounts(d, kind, AN.item, days, gran);
-  const pos = users.length;
   renderMetrics("an-metrics", [
     {v:sum, l:`最近 ${n} 天`, d:delta(sum, prevSum)},
-    {v:avgOf(values).toFixed(1), l:`日均次数（${GRAN_LABEL[gran]}）`,
-     d:delta(avgOf(values), prevSum / n)},
-    {v:pos ? `${pos} 位` : "—", l:"使用人数"}
+    {v:avgOf(grand).toFixed(1), l:`日均次数（${GRAN_LABEL[gran]}）`,
+     d:delta(avgOf(grand), prevSum / n)},
+    {v:users.length ? `${users.length} 位` : "—", l:"使用人数"}
   ]);
-  draw("c-an-users", optBarH(users, kind === "skill" ? CH.brand : CH.skill));
+  // with a single user selected the breakdown would be just that user
+  document.getElementById("an-users-card").hidden = user !== "__all__";
+  if (user === "__all__")
+    draw("c-an-users", optBarH(users, kind === "skill" ? CH.brand : CH.skill));
   renderAnalysisTable(d, days);
 }
 
@@ -1418,7 +1453,9 @@ function periodSum(d, kind, user, item, n){
     const t = new Date(day + "T00:00:00Z").getTime() - n * 86400000;
     return new Date(t).toISOString().slice(0, 10);
   });
-  const src = kind === "skill" ? (d.skill_days || {}) : (d.tool_days || {});
+  // the previous period has to be scoped to the same user, otherwise the
+  // comparison would mix one person's window with everybody's
+  const src = anDailySource(d, kind, user);
   let total = 0;
   Object.keys(src).forEach(name => {
     if (item !== "__all__" && name !== item) return;

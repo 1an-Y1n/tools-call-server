@@ -332,6 +332,16 @@ so a hundred-row result does not stretch the page to several thousand pixels.
 Clicking a Skill bar in the overview opens this page with that Skill
 selected.
 
+**The trend chart changes shape with the filters.** With 全部用户 it shows the
+total; with one user selected and 全部项目 it breaks the window down into the
+**ten most used Skills**, one coloured line each, so the shape of each Skill's
+usage is visible instead of a single aggregate line. Picking a specific
+项目 returns to the single line. The 谁在用 chart is hidden when a single user
+is selected — it would only ever show that one person.
+
+The period-over-period metric compares the same scope as the chart: the
+previous window of the same user and item.
+
 ### Admin / account endpoints
 
 `GET /admin/users`, `POST /admin/users`, `POST /admin/users/{username}/password`,
