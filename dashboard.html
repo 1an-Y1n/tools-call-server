@@ -503,7 +503,7 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
             <option value="365">最近一年</option>
           </select>
         </label>
-        <label id="an-top-wrap" title="项目选「全部项目」时，把趋势拆成调用最多的 N 个项目">分列
+        <label id="an-top-wrap" title="把趋势拆成多条线：全部项目时按项目拆，指定项目时按用户拆">分列
           <select id="an-top-sel">
             <option value="3">Top 3</option>
             <option value="5" selected>Top 5</option>
@@ -523,7 +523,12 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
     <div class="card">
       <div class="card-head">
         <div class="ttl">统计表</div>
-        <div class="card-head-actions"><span class="muted" id="an-table-hint"></span></div>
+        <div class="card-head-actions">
+          <label class="muted" id="an-table-from-wrap">起始 <input type="date" id="an-table-from"></label>
+          <label class="muted" id="an-table-to-wrap">至 <input type="date" id="an-table-to"></label>
+          <button type="button" class="dsh-btn dsh-btn-outline dsh-btn-sm" id="an-table-reset">跟随趋势</button>
+          <span class="muted" id="an-table-hint"></span>
+        </div>
       </div>
       <div id="t-an" class="tbl-wrap"></div>
       <div class="chart-note" id="an-table-note"></div>
@@ -1405,6 +1410,8 @@ function renderOverviewRank(d, days){
 // ---- 调用分析 (Skill 优先) ----------------------------------------------
 const AN = {
   kind:"skill", user:"__all__", item:"__all__", days:14, topN:5,
+  // null = follow the trend window; set by the table's own date inputs
+  tableFrom:null, tableTo:null,
   sort:{key:"n", dir:"desc"}
 };
 
@@ -1458,14 +1465,18 @@ function renderAnalysisTab(d){
   const grand = anTotalCounts(d, kind, user, keys, days, gran);
   const sum = grand.reduce((a,b) => a + b, 0);
 
-  // "全部项目" reads better as a breakdown than as one aggregate line: show
-  // the N most used items as separate lines, N chosen in the toolbar.
-  const breakdown = AN.item === "__all__";
+  // Two ways to break the trend into lines, both capped by the 分列 selector:
+  //   全部项目        -> the N most used items
+  //   指定项目 + 全部用户 -> the N most active users for that item
+  // anything else is a single line by definition.
+  const byItem = AN.item === "__all__";
+  const byUser = AN.item !== "__all__" && user === "__all__";
+  const split = byItem || byUser;
   const topSel = document.getElementById("an-top-sel");
-  topSel.disabled = !breakdown;
-  document.getElementById("an-top-wrap").style.opacity = breakdown ? "" : ".5";
+  topSel.disabled = !split;
+  document.getElementById("an-top-wrap").style.opacity = split ? "" : ".5";
   let values, topSeries = null;
-  if (breakdown){
+  if (byItem){
     topSeries = items.map(name => {
       const counts = anItemCounts(d, kind, user, name, keys, days, gran);
       return {name, data:counts, total:counts.reduce((a,b) => a + b, 0)};
@@ -1473,9 +1484,18 @@ function renderAnalysisTab(d){
     draw("c-an-daily", optMultiLine(labels,
           topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
     values = topSeries.map(x => x.total);
+  } else if (byUser){
+    const people = Object.keys(kind === "skill"
+      ? (d.user_skill_days || {}) : (d.user_tool_days || {}));
+    topSeries = people.map(p => {
+      const counts = anItemCounts(d, kind, p, AN.item, keys, days, gran);
+      return {name:userShort(d, p), data:counts, total:counts.reduce((a,b) => a + b, 0)};
+    }).filter(x => x.total > 0).sort((a,b) => b.total - a.total).slice(0, AN.topN);
+    draw("c-an-daily", optMultiLine(labels,
+          topSeries.map((x,i) => ({...x, color:PAL[i % PAL.length]}))));
+    values = topSeries.map(x => x.total);
   } else {
-    values = AN.item === "__all__" ? grand
-      : anItemCounts(d, kind, user, AN.item, keys, days, gran);
+    values = anItemCounts(d, kind, user, AN.item, keys, days, gran);
     draw("c-an-daily", optLine(labels, values,
           {ma: values.length > 7 ? movingAvg(values, 7) : null,
            color: kind === "skill" ? CH.skill : CH.brand}));
@@ -1483,9 +1503,13 @@ function renderAnalysisTab(d){
 
   const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
   const what = AN.item === "__all__" ? "全部项目" : AN.item;
+  const splitNote = topSeries
+    ? (byItem
+        ? ` · 按使用最多的 ${topSeries.length} 个 ${kind === "skill" ? "Skill" : "工具"} 分列`
+        : ` · 按调用最多的 ${topSeries.length} 位用户分列`)
+    : "";
   document.getElementById("an-hint").textContent =
-    `${who}${what} · 最近 ${n} 天共 ${sum} 次` +
-    (topSeries ? ` · 按使用最多的 ${topSeries.length} 个 ${kind === "skill" ? "Skill" : "工具"} 分列` : "");
+    `${who}${what} · 最近 ${n} 天共 ${sum} 次` + splitNote;
   document.getElementById("an-gran").textContent = GRAN_LABEL[gran];
 
   const prevSum = periodSum(d, kind, user, AN.item, n);
@@ -1500,7 +1524,42 @@ function renderAnalysisTab(d){
   document.getElementById("an-users-card").hidden = user !== "__all__";
   if (user === "__all__")
     draw("c-an-users", optBarH(users, kind === "skill" ? CH.brand : CH.skill));
-  renderAnalysisTable(d, days);
+  syncTableRange(d);
+  renderAnalysisTable(d, tableDays(d));
+}
+
+// The table has its own date range: by default it follows the trend window,
+// but the two date inputs let it cover any span independently.
+function tableDays(d){
+  if (!AN.tableFrom || !AN.tableTo) return dayListFor(d, AN.days);
+  const start = new Date(AN.tableFrom + "T00:00:00Z").getTime();
+  const end = new Date(AN.tableTo + "T00:00:00Z").getTime();
+  if (isNaN(start) || isNaN(end) || end < start) return dayListFor(d, AN.days);
+  const out = [];
+  const cap = 731;   // two years; keeps a stray date from looping forever
+  for (let t = start, i = 0; t <= end && i < cap; t += 86400000, i++)
+    out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+// Show the range the table is actually using.
+function syncTableRange(d){
+  const days = tableDays(d);
+  const from = document.getElementById("an-table-from");
+  const to = document.getElementById("an-table-to");
+  // keep the pickers inside the range that actually has data
+  const all = Object.keys(d.by_day || {}).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
+  if (all.length){
+    [from, to].forEach(el => { el.min = all[0]; el.max = all[all.length - 1]; });
+  }
+  if (!AN.tableFrom || !AN.tableTo){
+    from.value = days[0] || "";
+    to.value = days[days.length - 1] || "";
+  }
+  const custom = !!(AN.tableFrom && AN.tableTo);
+  document.getElementById("an-table-reset").disabled = !custom;
+  ["an-table-from-wrap", "an-table-to-wrap"].forEach(id => {
+    document.getElementById(id).style.opacity = custom ? "" : ".75";
+  });
 }
 
 // The same amount over the window right before it.
@@ -1549,10 +1608,11 @@ function renderAnalysisTable(d, days){
     return;
   }
   const total = persons.reduce((s,p) => s + items.reduce((t,i) => t + cellOf(p,i), 0), 0) || 1;
-  hint.textContent = `${persons.length} 位用户 × ${items.length} 个项目 · 共 ${total.toLocaleString()} 次`;
+  const span = days.length > 1 ? `${days[0]} ~ ${days[days.length-1]}` : (days[0] || "");
+  hint.textContent = `${span} · ${persons.length} 位用户 × ${items.length} 个项目 · 共 ${total.toLocaleString()} 次`;
   box.innerHTML = crossTable(src, persons, items, days, d, total, cellOf);
   document.getElementById("an-table-note").innerHTML =
-    "表格按当前时间窗口统计；首列固定，横向滚动时不会移走。";
+    "表格按上面的起止日期统计（默认跟随趋势窗口）；首列固定，横向滚动时不会移走。";
 }
 
 // Users down the rows, items across the columns.
@@ -2799,6 +2859,29 @@ document.getElementById("an-days-sel").addEventListener("change", ev => {
 document.getElementById("an-top-sel").addEventListener("change", ev => {
   AN.topN = parseInt(ev.target.value, 10) || 5;
   renderAnalysisTab(DATA);
+});
+// The table's own range. Both ends must be set before it takes effect.
+["an-table-from", "an-table-to"].forEach(id => {
+  document.getElementById(id).addEventListener("change", () => {
+    const from = document.getElementById("an-table-from").value;
+    const to = document.getElementById("an-table-to").value;
+    if (!from || !to) return;
+    if (from > to){
+      toast("起始日期不能晚于结束日期", "error");
+      syncTableRange(DATA);
+      return;
+    }
+    AN.tableFrom = from;
+    AN.tableTo = to;
+    syncTableRange(DATA);
+    renderAnalysisTable(DATA, tableDays(DATA));
+  });
+});
+document.getElementById("an-table-reset").addEventListener("click", () => {
+  AN.tableFrom = null;
+  AN.tableTo = null;
+  syncTableRange(DATA);
+  renderAnalysisTable(DATA, tableDays(DATA));
 });
 document.getElementById("an-kind").addEventListener("click", ev => {
   const btn = ev.target.closest("button[data-kind]");
