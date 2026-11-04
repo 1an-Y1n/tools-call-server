@@ -8,66 +8,119 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;
 background:#f5f6f8;color:#1f2328;font-size:14px;line-height:1.6;
-min-height:100vh;display:flex;align-items:center;justify-content:center}
-.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:32px;width:340px}
-h1{font-size:17px;font-weight:600;margin-bottom:20px;text-align:center}
+min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{background:#fff;border:.5px solid #e2e5ea;border-radius:12px;padding:32px;width:352px;
+box-shadow:0 1px 2px rgba(15,17,21,.04),0 8px 24px rgba(15,17,21,.04)}
+h1{font-size:16px;font-weight:600;margin-bottom:4px;text-align:center;letter-spacing:-.01em}
+.sub{font-size:12px;color:#6b7280;text-align:center;margin-bottom:20px}
 label{display:block;font-size:12px;color:#6b7280;margin:12px 0 4px}
-input{width:100%;background:#fff;color:#1f2328;border:1px solid #dcdfe5;
-border-radius:6px;padding:8px 10px;font-size:14px;font-family:inherit}
-input:focus{outline:none;border-color:#3b7ddd}
-button{width:100%;margin-top:18px;background:#3b7ddd;color:#fff;font-weight:600;
-border:1px solid #3b7ddd;border-radius:6px;padding:9px;font-size:14px;cursor:pointer;font-family:inherit}
-button:hover{background:#2f6bc4}
+input{width:100%;background:#fff;color:#1f2328;border:.5px solid #dcdfe5;
+border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit}
+input:focus{outline:none;border-color:#0f1115;box-shadow:0 0 0 3px rgba(15,17,21,.06)}
+button{width:100%;margin-top:20px;background:#0f1115;color:#fff;font-weight:600;
+border:1px solid #0f1115;border-radius:8px;padding:9px;font-size:14px;cursor:pointer;font-family:inherit}
+button:hover{background:#243043}
 button:disabled{opacity:.6;cursor:wait}
-.err{color:#d4537e;font-size:13px;min-height:18px;margin-top:12px;text-align:center}
+.err{color:#c0392b;font-size:13px;min-height:18px;margin-top:12px;text-align:center}
+.hint{background:#f6f7f9;border:.5px solid #e2e5ea;border-radius:8px;padding:10px 12px;
+font-size:12.5px;line-height:1.6;color:#4b5563;margin-bottom:4px}
 .pwwrap{position:relative;display:flex}
 .pwwrap input{width:100%;padding-right:38px}
 button.pweye{position:absolute;top:0;right:0;height:100%;width:36px;margin:0;
 display:flex;align-items:center;justify-content:center;
 border:none;background:transparent;cursor:pointer;padding:0;color:#9ca3af}
-button.pweye:hover{background:transparent;color:#3b7ddd}
-.pwwrap:focus-within .pweye{color:#3b7ddd}
+button.pweye:hover{background:transparent;color:#0f1115}
 .pweye svg{display:block}
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Agent 工具 / Skill 使用统计</h1>
-  <form id="f">
-    <label>用户名</label><input id="u" autocomplete="username" autofocus>
-    <label>密码</label>
+  <div class="sub" id="sub">使用公司邮箱登录</div>
+
+  <form id="f-login">
+    <label for="u">账号</label>
+    <input id="u" type="text" autocomplete="username" placeholder="name@company.com" autofocus>
+    <label for="p">密码</label>
     <span class="pwwrap"><input id="p" type="password" autocomplete="current-password"><button type="button" class="pweye" id="eye-p" tabindex="-1"></button></span>
     <button type="submit" id="btn">登录</button>
     <div class="err" id="e"></div>
+  </form>
+
+  <form id="f-change" hidden>
+    <div class="hint" id="change-hint">首次登录需要先设置自己的密码。</div>
+    <label for="cp">当前密码</label>
+    <span class="pwwrap"><input id="cp" type="password" autocomplete="current-password"><button type="button" class="pweye" data-eye="cp" tabindex="-1"></button></span>
+    <label for="np">新密码</label>
+    <span class="pwwrap"><input id="np" type="password" autocomplete="new-password"><button type="button" class="pweye" data-eye="np" tabindex="-1"></button></span>
+    <label for="np2">确认新密码</label>
+    <span class="pwwrap"><input id="np2" type="password" autocomplete="new-password"><button type="button" class="pweye" data-eye="np2" tabindex="-1"></button></span>
+    <button type="submit" id="btn-change">保存并进入</button>
+    <div class="err" id="e2"></div>
   </form>
 </div>
 <script>
 const EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
 const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>';
-const eyeBtn = document.getElementById("eye-p"), pwInput = document.getElementById("p");
-eyeBtn.innerHTML = EYE;
-eyeBtn.title = "显示密码";
-eyeBtn.setAttribute("aria-label", "显示密码");
-eyeBtn.onclick = () => {
-  const show = pwInput.type === "password";
-  pwInput.type = show ? "text" : "password";
-  eyeBtn.innerHTML = show ? EYE_OFF : EYE;
-  eyeBtn.title = show ? "隐藏密码" : "显示密码";
-  eyeBtn.setAttribute("aria-label", eyeBtn.title);
-};
+
+document.querySelectorAll("button.pweye").forEach(btn => {
+  const inp = document.getElementById(btn.dataset.eye || "p");
+  btn.innerHTML = EYE;
+  btn.title = "显示密码";
+  btn.setAttribute("aria-label", "显示密码");
+  btn.onclick = () => {
+    const show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    btn.innerHTML = show ? EYE_OFF : EYE;
+    btn.title = show ? "隐藏密码" : "显示密码";
+    btn.setAttribute("aria-label", btn.title);
+  };
+});
 
 const err = document.getElementById("e");
-document.getElementById("f").addEventListener("submit", async (ev) => {
+const err2 = document.getElementById("e2");
+const loginForm = document.getElementById("f-login");
+const changeForm = document.getElementById("f-change");
+const sub = document.getElementById("sub");
+
+function showChange(message, currentPassword){
+  loginForm.hidden = true;
+  changeForm.hidden = false;
+  sub.textContent = "请设置新密码";
+  if (message) document.getElementById("change-hint").textContent = message;
+  if (currentPassword) document.getElementById("cp").value = currentPassword;
+  setTimeout(() => document.getElementById("np").focus(), 30);
+}
+function showLogin(message){
+  changeForm.hidden = true;
+  loginForm.hidden = false;
+  sub.textContent = "使用公司邮箱登录";
+  err.textContent = message || "";
+  setTimeout(() => document.getElementById("u").focus(), 30);
+}
+
+loginForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   err.textContent = "";
   const btn = document.getElementById("btn");
   btn.disabled = true;
+  const account = document.getElementById("u").value.trim();
+  const password = document.getElementById("p").value;
   try {
     const r = await fetch("/login", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: document.getElementById("u").value.trim(),
-                             password: document.getElementById("p").value }) });
-    if (r.ok) { window.location.href = "/dashboard"; return; }
+      body: JSON.stringify({ username: account, password }) });
+    if (r.ok) {
+      let data = null;
+      try { data = await r.json(); } catch {}
+      if (data && data.must_change_password){
+        // the password was issued by the server (invite mail or admin reset)
+        showChange("首次登录需要先设置自己的密码，设置后即可进入看板。", password);
+        return;
+      }
+      window.location.href = "/dashboard";
+      return;
+    }
     let detail = "登录失败";
     try { detail = (await r.json()).detail || detail; } catch {}
     err.textContent = detail;
@@ -77,6 +130,36 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
     btn.disabled = false;
   }
 });
+
+changeForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  err2.textContent = "";
+  const oldPw = document.getElementById("cp").value;
+  const newPw = document.getElementById("np").value;
+  const newPw2 = document.getElementById("np2").value;
+  if (newPw.length < 8){ err2.textContent = "新密码至少 8 位"; return; }
+  if (newPw !== newPw2){ err2.textContent = "两次输入的新密码不一致"; return; }
+  const btn = document.getElementById("btn-change");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/me/password", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old_password: oldPw, new_password: newPw }) });
+    if (r.ok){ window.location.href = "/dashboard"; return; }
+    if (r.status === 401){ showLogin("登录已过期，请重新登录"); document.getElementById("p").value = ""; return; }
+    let detail = "保存失败";
+    try { detail = (await r.json()).detail || detail; } catch {}
+    err2.textContent = detail;
+  } catch {
+    err2.textContent = "网络错误，请重试";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+if (new URLSearchParams(location.search).get("change") === "1"){
+  showChange("首次登录需要先设置自己的密码，设置后即可进入看板。");
+}
 </script>
 </body>
 </html>

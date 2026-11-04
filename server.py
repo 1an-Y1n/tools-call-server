@@ -1,10 +1,15 @@
 """tools-call-server: FastAPI backend for tools-call-collector uploads.
 
 Ingests NDJSON batches (one JSON record per line, as appended by the plugin's
-collector) into SQLite. Local-account login (admin/user roles) protects the
-dashboard and stats API — regular users only see their own records; the ingest
-endpoint stays open for collectors. A default admin SUPER_ADMIN / SUPER_ADMIN
-is seeded on first start (empty users table) — change it after first login.
+collector) into SQLite. Accounts are provisioned from the data itself: the
+first record carrying an unseen email opens a local account whose name is that
+address, and a random password is mailed there once (the admin can trigger a
+resend, which always issues a new password). Local-account login protects the
+dashboard and stats API — regular users only see their own records. The ingest
+endpoint stays open for collectors, so it never fails because of account
+provisioning. SUPER_ADMIN / SUPER_ADMIN is seeded on first start (empty users
+table); two roles are enough — every admin mutation refuses to remove the last
+remaining admin, which is what keeps the system manageable.
 
 Windowed usage reports are emailed per user, plus a team aggregate (team
 totals + per-person overview) to every admin with a configured mailbox:
@@ -17,6 +22,7 @@ import hmac
 import json
 import logging
 import os
+import queue
 import re
 import secrets
 import smtplib
@@ -106,10 +112,63 @@ def set_smtp_settings(updates):
         conn.commit()
 
 
+def get_setting(key, default=None):
+    with closing(connect()) as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(key, value):
+    with closing(connect()) as conn:
+        if value is None:
+            conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+        else:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, str(value)),
+            )
+        conn.commit()
+
+
+# Comma/space separated allow-list for accounts auto-created from collected
+# data. Empty (the default) accepts every address. Entries are either a full
+# address (name@corp.com) or a bare domain (corp.com / *@corp.com).
+ALLOWLIST_KEY = "ingest_email_allowlist"
+
+
+def get_email_allowlist():
+    return get_setting(ALLOWLIST_KEY, "") or ""
+
+
+def set_email_allowlist(raw):
+    cleaned = " ".join(str(raw or "").replace(",", " ").replace(";", " ").split())
+    set_setting(ALLOWLIST_KEY, cleaned or None)
+
+
+def email_allowed(email):
+    """Whether a collected address may get an account. Empty list = allow all."""
+    patterns = get_email_allowlist().split()
+    if not patterns:
+        return True
+    email = (email or "").lower()
+    for pattern in patterns:
+        p = pattern.lower().lstrip("*").lstrip("@")
+        if not p:
+            continue
+        if "@" in p:
+            if email == p:
+                return True
+        elif email.endswith("@" + p):
+            return True
+    return False
+
+
 @asynccontextmanager
 async def lifespan(app):
     seed_default_admin()
     threading.Thread(target=_report_scheduler, daemon=True).start()
+    threading.Thread(target=_invite_worker, daemon=True).start()
     yield
 
 
@@ -172,6 +231,11 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     email TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    invite_sent_at TEXT,
+    invite_error TEXT,
+    last_login_at TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (
@@ -195,9 +259,36 @@ def migrate(conn):
     ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
     if "email" not in ucols:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    if "status" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+    if "must_change_password" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+    if "invite_sent_at" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN invite_sent_at TEXT")
+    if "invite_error" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN invite_error TEXT")
+    if "last_login_at" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
+    # Two roles only. Older databases may still carry the retired super_admin
+    # tier; fold it back into admin.
+    if conn.execute("SELECT 1 FROM users WHERE role = 'super_admin'").fetchone():
+        conn.execute("UPDATE users SET role = 'admin' WHERE role = 'super_admin'")
+    # Safety net: every admin mutation keeps at least one admin, so an empty
+    # admin list can only come from hand-edited SQL. Recover the bootstrap
+    # account (else the oldest account) rather than leave the app unmanageable.
+    if not conn.execute("SELECT 1 FROM users WHERE role = 'admin'").fetchone():
+        row = conn.execute(
+            "SELECT username FROM users ORDER BY (username = 'SUPER_ADMIN') DESC, id LIMIT 1"
+        ).fetchone()
+        if row:
+            conn.execute("UPDATE users SET role = 'admin' WHERE username = ?", (row[0],))
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_client ON events(client_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_user ON events(user)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_email ON events(email)")
+    # the role promotion above is DML and would otherwise sit in an implicit
+    # transaction that closing() rolls back — it would then be re-applied on
+    # every connection, taking a write lock for each request
+    conn.commit()
 
 
 def connect():
@@ -223,6 +314,34 @@ INGEST_MAX_BYTES = 10_000_000
 # lets old and new data live in the same table.
 PERSON_SQL = "COALESCE(email, user)"
 
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_MAX_LEN = 254
+
+
+def norm_email(value):
+    """Canonical form of an email used as an account name / person key.
+
+    Lower-cased and trimmed so the same person reported with different casing
+    by different collectors still lands on one account. Returns None for
+    anything that is not a plausible address, so malformed values fall back to
+    the local account name instead of creating a junk account.
+    """
+    if not isinstance(value, str):
+        return None
+    email = value.strip().lower()
+    if not email or len(email) > EMAIL_MAX_LEN or not EMAIL_RE.match(email):
+        return None
+    return email
+
+
+def is_email(value):
+    return norm_email(value) is not None
+
+
+def gen_password(nbytes=12):
+    # token_urlsafe(12) yields 16 URL-safe characters (~96 bits of entropy).
+    return secrets.token_urlsafe(nbytes)
+
 
 def row_from_record(record, raw):
     if not isinstance(record.get("type"), str) or not isinstance(record.get("timestamp"), str):
@@ -246,7 +365,7 @@ def row_from_record(record, raw):
         _s(record.get("client_id")),
         _s(record.get("user")),
         _s(record.get("name")),
-        _s(record.get("email")),
+        norm_email(record.get("email")),
         _s(record.get("session_id")),
         _s(record.get("prompt_id")),
         _s(record.get("project_dir")),
@@ -267,8 +386,117 @@ def health():
     return {"status": "ok"}
 
 
-def do_ingest(body):
-    rows, rejects = [], []
+# ---------------------------------------------------------------------------
+# Accounts created from collected data. The first record carrying an unseen
+# email opens an account with a random password that is mailed to that address
+# exactly once; the password is never stored in clear text, so any later resend
+# (admin "reset") generates a fresh one.
+# ---------------------------------------------------------------------------
+INVITE_QUEUE = queue.Queue()
+INVITE_MAX_PER_HOUR = 60
+_invite_lock = threading.Lock()
+_invite_sent_at = []
+
+
+def _invite_rate_ok():
+    cutoff = time.time() - 3600
+    with _invite_lock:
+        _invite_sent_at[:] = [t for t in _invite_sent_at if t > cutoff]
+        return len(_invite_sent_at) < INVITE_MAX_PER_HOUR
+
+
+def _note_invite_sent():
+    with _invite_lock:
+        _invite_sent_at.append(time.time())
+
+
+def ensure_account_for_email(email):
+    """Open an account for a collected email the first time it is seen.
+
+    Returns (created, temporary_password); the password only comes back when
+    this call actually created the row, so it can be mailed once.
+    """
+    if not email or not email_allowed(email):
+        return False, None
+    with closing(connect()) as conn:
+        if conn.execute("SELECT 1 FROM users WHERE username = ?", (email,)).fetchone():
+            return False, None
+        password = gen_password()
+        cur = conn.execute(
+            "INSERT INTO users (username, password_hash, role, email, status,"
+            " must_change_password, created_at) VALUES (?, ?, 'user', ?, 'active', 1, ?)"
+            " ON CONFLICT(username) DO NOTHING",
+            (email, hash_password(password), email, now_iso()),
+        )
+        conn.commit()
+        created = cur.rowcount == 1
+    return created, (password if created else None)
+
+
+def queue_invite(email, password, base_url):
+    # A burst of brand-new addresses must not pile plain-text passwords into an
+    # unbounded queue: past the cap the account still exists, the admin can
+    # resend once the backlog clears.
+    if INVITE_QUEUE.qsize() >= 200:
+        mark_invite(email, error="邀请队列已满，请管理员稍后重新发送")
+        return
+    INVITE_QUEUE.put((email, password, base_url))
+
+
+def mark_invite(email, sent=False, error=None):
+    with closing(connect()) as conn:
+        if sent:
+            conn.execute(
+                "UPDATE users SET invite_sent_at = ?, invite_error = NULL WHERE username = ?",
+                (now_iso(), email),
+            )
+        else:
+            conn.execute(
+                "UPDATE users SET invite_error = ? WHERE username = ?",
+                (error or "发送失败", email),
+            )
+        conn.commit()
+
+
+def invite_html(email, password, base_url):
+    login_url = (base_url or "").rstrip("/") + "/login"
+    return (
+        '<div style="font-family:-apple-system,\'Segoe UI\',sans-serif;font-size:14px;'
+        'line-height:1.7;color:#1f2328">'
+        '<p>你的 Agent 工具 / Skill 使用统计账号已开通。</p>'
+        '<table style="border-collapse:collapse;font-size:14px;margin:12px 0">'
+        f'<tr><td style="padding:4px 12px 4px 0;color:#6b7280">登录地址</td><td>{esc_html(login_url or "见内网地址")}</td></tr>'
+        f'<tr><td style="padding:4px 12px 4px 0;color:#6b7280">账号</td><td><b>{esc_html(email)}</b></td></tr>'
+        f'<tr><td style="padding:4px 12px 4px 0;color:#6b7280">初始密码</td><td><code style="font-size:14px">{esc_html(password)}</code></td></tr>'
+        "</table>"
+        "<p>首次登录后系统会要求你修改密码。若此邮件并非你本人预期，请联系管理员。</p>"
+        "</div>"
+    )
+
+
+def _invite_worker():
+    while True:
+        item = INVITE_QUEUE.get()
+        if item is None:
+            return
+        email, password, base_url = item
+        if not _invite_rate_ok():
+            # still created, just not announced: the admin sees it and can
+            # resend after the hourly window clears
+            mark_invite(email, error="发送过于频繁，请管理员稍后重试")
+            continue
+        try:
+            send_html_mail(email, "Agent 使用统计账号已开通", invite_html(email, password, base_url))
+        except Exception as exc:
+            log.warning("invite mail to %s failed: %s", email, exc)
+            mark_invite(email, error=_smtp_error_detail(exc))
+        else:
+            _note_invite_sent()
+            mark_invite(email, sent=True)
+
+
+def do_ingest(body, base_url=""):
+    rows, rejects, emails = [], [], set()
     for line in body.splitlines():
         line = line.strip()
         if not line:
@@ -277,7 +505,10 @@ def do_ingest(body):
             record = json.loads(line)
             if not isinstance(record, dict):
                 raise ValueError("record is not a JSON object")
-            rows.append(row_from_record(record, line))
+            row = row_from_record(record, line)
+            rows.append(row)
+            if row[7]:
+                emails.add(row[7])
         except Exception as exc:
             rejects.append((now_iso(), line, f"{type(exc).__name__}: {exc}"))
 
@@ -294,6 +525,17 @@ def do_ingest(body):
             conn.executemany("INSERT INTO rejects (received_at, raw, reason) VALUES (?, ?, ?)", rejects)
         conn.commit()
 
+    # after the batch is committed: open accounts for addresses never seen
+    # before. Ingestion never fails because of this step.
+    for email in sorted(emails):
+        try:
+            created, password = ensure_account_for_email(email)
+        except Exception:
+            log.exception("auto-provision failed for %s", email)
+            continue
+        if created:
+            queue_invite(email, password, base_url)
+
     return {"accepted": len(rows), "rejected": len(rejects)}
 
 
@@ -307,7 +549,7 @@ async def ingest(request: Request):
         raise HTTPException(status_code=400, detail="empty body")
     if len(body) > INGEST_MAX_BYTES:
         raise HTTPException(status_code=413, detail="body too large")
-    return await run_in_threadpool(do_ingest, body)
+    return await run_in_threadpool(do_ingest, body, str(request.base_url))
 
 
 @app.get("/v1/stats")
@@ -315,6 +557,8 @@ def stats(request: Request):
     user = current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="not authenticated")
+    if user["must_change_password"]:
+        raise HTTPException(status_code=403, detail="请先修改初始密码")
     return compute_stats(None if user["role"] == "admin" else user["name"])
 
 
@@ -335,8 +579,9 @@ class PasswordBody(BaseModel):
 
 class NewUserBody(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
     role: str = "user"
+    email: Optional[str] = None
 
 
 class RoleBody(BaseModel):
@@ -347,8 +592,12 @@ class RenameBody(BaseModel):
     username: str
 
 
-class ResetPasswordBody(BaseModel):
-    password: str
+class StatusBody(BaseModel):
+    status: str
+
+
+class EmailBody(BaseModel):
+    email: str
 
 
 def hash_password(password):
@@ -373,8 +622,19 @@ def get_user(username):
 
 
 def _check_username(name):
-    if not name or len(name) > 64 or any(ord(c) < 32 for c in name):
-        raise HTTPException(status_code=400, detail="用户名长度需 1-64 字符且不含控制字符")
+    if not name or len(name) > EMAIL_MAX_LEN or any(ord(c) < 32 for c in name):
+        raise HTTPException(
+            status_code=400, detail="账号长度需 1-254 字符且不含控制字符")
+
+
+def normalize_username(name):
+    """Account names are emails for data-backed users, so they are lower-cased.
+
+    Admin-chosen names (SUPER_ADMIN, an operator alias) keep their casing: they
+    are never matched against collected data.
+    """
+    raw = (name or "").strip()
+    return raw.lower() if "@" in raw else raw
 
 
 def _rename_user(old_name, new_name):
@@ -415,10 +675,16 @@ def current_user(request: Request):
     if not sess:
         return None
     row = get_user(sess["name"])
-    if not row:
+    if not row or row["status"] != "active":
         request.session.clear()
         return None
-    return {"name": row["username"], "role": row["role"]}
+    return {
+        "name": row["username"],
+        "role": row["role"],
+        "email": row["email"],
+        "status": row["status"],
+        "must_change_password": bool(row["must_change_password"]),
+    }
 
 
 def require_user(request: Request):
@@ -428,10 +694,20 @@ def require_user(request: Request):
     return user
 
 
+ROLE_RANK = {"user": 0, "admin": 1}
+
+
 def require_admin(user: dict = Depends(require_user)):
-    if user["role"] != "admin":
+    if ROLE_RANK.get(user["role"], 0) < ROLE_RANK["admin"]:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
+
+
+def count_other_admins(username):
+    with closing(connect()) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND username != ?", (username,)
+        ).fetchone()[0]
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -441,7 +717,7 @@ def login_page():
 
 @app.post("/login")
 def login(body: LoginBody, request: Request):
-    username = body.username.strip()
+    username = normalize_username(body.username)
     _check_username(username)
     if len(body.password) > 1024:
         raise HTTPException(status_code=400, detail="密码过长")
@@ -449,9 +725,14 @@ def login(body: LoginBody, request: Request):
     if not row:
         verify_password(body.password, _dummy_hash())
     if not row or not verify_password(body.password, row["password_hash"]):
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
+        raise HTTPException(status_code=401, detail="账号或密码错误")
+    if row["status"] != "active":
+        raise HTTPException(status_code=403, detail="该账号已停用，请联系管理员")
+    with closing(connect()) as conn:
+        conn.execute("UPDATE users SET last_login_at = ? WHERE username = ?", (now_iso(), username))
+        conn.commit()
     request.session["user"] = {"name": username, "role": row["role"]}
-    return {"ok": True}
+    return {"ok": True, "must_change_password": bool(row["must_change_password"])}
 
 
 @app.post("/logout")
@@ -466,12 +747,14 @@ def change_my_password(body: PasswordBody, user: dict = Depends(require_user)):
         raise HTTPException(status_code=400, detail="新密码至少 8 位")
     if body.new_password == body.old_password:
         raise HTTPException(status_code=400, detail="新密码不能与旧密码相同")
+    if is_email(user["name"]) and body.new_password.strip().lower() == user["name"]:
+        raise HTTPException(status_code=400, detail="密码不能与账号邮箱相同")
     row = get_user(user["name"])
     if not row or not verify_password(body.old_password, row["password_hash"]):
         raise HTTPException(status_code=400, detail="旧密码错误")
     with closing(connect()) as conn:
         conn.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
+            "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE username = ?",
             (hash_password(body.new_password), user["name"]),
         )
         conn.commit()
@@ -483,51 +766,132 @@ def admin_list_users(user: dict = Depends(require_admin)):
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT username, role, email, created_at FROM users ORDER BY username"
+            "SELECT id, username, role, email, status, must_change_password,"
+            " invite_sent_at, invite_error, last_login_at, created_at"
+            " FROM users ORDER BY username"
         ).fetchall()
-        users = []
-        for r in rows:
-            item = dict(r)
-            # the Devin account email the collector reported for this person —
-            # shown as a hint, and used as the report recipient when the admin
-            # has not configured a mailbox
-            item["collected_email"] = _collected_email(conn, r["username"])
-            users.append(item)
+        # one pass over events: per-person volume and last activity. The person
+        # key is the collected email when there is one, otherwise the local
+        # account name — the same expression every other aggregation uses.
+        usage = {
+            r[0]: {"event_count": r[1], "last_seen": r[2]}
+            for r in conn.execute(
+                f"SELECT {PERSON_SQL} AS person, COUNT(*) AS n, MAX(timestamp) AS last_seen"
+                " FROM events GROUP BY person"
+            )
+        }
+    users = []
+    for r in rows:
+        item = dict(r)
+        item["must_change_password"] = bool(item["must_change_password"])
+        stats = usage.get(r["username"]) or {}
+        item["event_count"] = stats.get("event_count", 0)
+        item["last_seen"] = stats.get("last_seen")
+        users.append(item)
     return {"users": users}
 
 
 @app.post("/admin/users")
 def admin_create_user(body: NewUserBody, user: dict = Depends(require_admin)):
-    username = body.username.strip()
+    username = normalize_username(body.username)
     _check_username(username)
-    if len(body.password) < 8 or len(body.password) > 1024:
+    # Regular accounts are opened by the collector, never by hand: a manual
+    # account here is always an administrator, which is also why its name does
+    # not have to be an address.
+    if body.role != "admin":
+        raise HTTPException(
+            status_code=400,
+            detail="普通账号由采集数据自动创建，这里只能添加管理员")
+
+    if is_email(username):
+        # data-backed accounts are identified by their address: the login name
+        # and the report recipient are the same value, by design
+        email = username
+    else:
+        email = norm_email(body.email) if body.email else None
+        if not email:
+            raise HTTPException(status_code=400, detail="请为该管理员填写报告邮箱")
+    if body.email and norm_email(body.email) != email:
+        raise HTTPException(status_code=400, detail="账号为邮箱时，报告邮箱必须与之一致")
+
+    generated = body.password is None
+    password = gen_password() if generated else body.password
+    if len(password) < 8 or len(password) > 1024:
         raise HTTPException(status_code=400, detail="密码长度需 8-1024 位")
-    if body.role not in ("admin", "user"):
-        raise HTTPException(status_code=400, detail="role 必须是 admin 或 user")
     try:
         with closing(connect()) as conn:
             conn.execute(
-                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
-                (username, hash_password(body.password), body.role, now_iso()),
+                "INSERT INTO users (username, password_hash, role, email, status,"
+                " must_change_password, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+                (username, hash_password(password), body.role, email,
+                 1 if generated else 0, now_iso()),
             )
             conn.commit()
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="用户已存在")
-    return {"ok": True}
+
+    email_sent, email_error = False, None
+    if generated:
+        try:
+            send_html_mail(email, "Agent 使用统计账号已开通",
+                           invite_html(email, password, ""))
+            mark_invite(email, sent=True)
+            email_sent = True
+        except Exception as exc:
+            email_error = _smtp_error_detail(exc)
+            mark_invite(email, error=email_error)
+    return {"ok": True, "username": username, "email": email,
+            "password": password if generated else None,
+            "email_sent": email_sent, "email_error": email_error}
 
 
 @app.post("/admin/users/{username}/password")
-def admin_reset_password(username: str, body: ResetPasswordBody, user: dict = Depends(require_admin)):
-    if len(body.password) < 8 or len(body.password) > 1024:
-        raise HTTPException(status_code=400, detail="密码长度需 8-1024 位")
+def admin_reset_password(username: str, user: dict = Depends(require_admin)):
+    """Issue a brand-new password and mail it. The plain text is never returned.
+
+    Used both for "forgot my password" and for re-sending after a failed
+    delivery; because only the hash is stored, a resend always means a new
+    password.
+    """
+    row = get_user(username)
+    if not row:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    password = gen_password()
     with closing(connect()) as conn:
-        cur = conn.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
-            (hash_password(body.password), username),
+        conn.execute(
+            "UPDATE users SET password_hash = ?, must_change_password = 1,"
+            " invite_sent_at = NULL, invite_error = NULL WHERE username = ?",
+            (hash_password(password), username),
         )
         conn.commit()
-    if cur.rowcount == 0:
+    recipient = row["email"] or (username if is_email(username) else "")
+    if not recipient:
+        raise HTTPException(status_code=400, detail="该账号未配置邮箱，无法发送新密码")
+    try:
+        send_html_mail(recipient, "Agent 使用统计账号密码已重置",
+                       invite_html(recipient, password, ""))
+    except Exception as exc:
+        detail = _smtp_error_detail(exc)
+        mark_invite(recipient, error=detail)
+        raise HTTPException(status_code=502, detail=f"密码已重置，但邮件发送失败：{detail}")
+    mark_invite(recipient, sent=True)
+    return {"ok": True, "email": recipient}
+
+
+@app.post("/admin/users/{username}/status")
+def admin_set_status(username: str, body: StatusBody, user: dict = Depends(require_admin)):
+    if body.status not in ("active", "disabled"):
+        raise HTTPException(status_code=400, detail="status 必须是 active 或 disabled")
+    if username == user["name"]:
+        raise HTTPException(status_code=400, detail="不能停用自己的账号")
+    row = get_user(username)
+    if not row:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if row["role"] == "admin" and body.status == "disabled" and count_other_admins(username) == 0:
+        raise HTTPException(status_code=400, detail="至少需要保留一名可用的管理员")
+    with closing(connect()) as conn:
+        conn.execute("UPDATE users SET status = ? WHERE username = ?", (body.status, username))
+        conn.commit()
     return {"ok": True}
 
 
@@ -540,26 +904,35 @@ def admin_set_role(username: str, body: RoleBody, user: dict = Depends(require_a
     row = get_user(username)
     if not row:
         raise HTTPException(status_code=404, detail="用户不存在")
-    if body.role == "user" and row["role"] == "admin":
-        with closing(connect()) as conn:
-            admins = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
-        if admins <= 1:
-            raise HTTPException(status_code=400, detail="不能降级最后一名管理员")
+    if body.role == "user":
+        if count_other_admins(username) == 0:
+            raise HTTPException(status_code=400, detail="至少需要保留一名管理员")
+        if not is_email(username):
+            raise HTTPException(
+                status_code=400, detail="该账号以管理员别名登录，降级为普通用户后无法匹配采集数据")
     with closing(connect()) as conn:
-        cur = conn.execute("UPDATE users SET role = ? WHERE username = ?", (body.role, username))
+        conn.execute("UPDATE users SET role = ? WHERE username = ?", (body.role, username))
         conn.commit()
-    if cur.rowcount == 0:
-        raise HTTPException(status_code=404, detail="用户不存在")
     return {"ok": True}
 
 
 @app.post("/admin/users/{username}/rename")
-def admin_rename_user(username: str, body: RenameBody, request: Request, user: dict = Depends(require_admin)):
-    new_name = body.username.strip()
+def admin_rename_user(username: str, body: RenameBody, request: Request,
+                      user: dict = Depends(require_admin)):
+    new_name = normalize_username(body.username)
     _check_username(new_name)
     if new_name == username:
         return {"ok": True}
+    row = get_user(username)
+    if not row:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if not is_email(new_name) and row["role"] != "admin":
+        raise HTTPException(status_code=400, detail="普通用户的账号必须是邮箱")
     row = _rename_user(username, new_name)
+    if is_email(new_name):
+        with closing(connect()) as conn:
+            conn.execute("UPDATE users SET email = ? WHERE username = ?", (new_name, new_name))
+            conn.commit()
     if username == user["name"]:
         request.session["user"] = {"name": new_name, "role": row["role"]}
     return {"ok": True}
@@ -572,11 +945,8 @@ def admin_delete_user(username: str, user: dict = Depends(require_admin)):
     row = get_user(username)
     if not row:
         raise HTTPException(status_code=404, detail="用户不存在")
-    if row["role"] == "admin":
-        with closing(connect()) as conn:
-            admins = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
-        if admins <= 1:
-            raise HTTPException(status_code=400, detail="不能删除最后一名管理员")
+    if row["role"] == "admin" and count_other_admins(username) == 0:
+        raise HTTPException(status_code=400, detail="至少需要保留一名管理员")
     with closing(connect()) as conn:
         conn.execute("DELETE FROM users WHERE username = ?", (username,))
         conn.commit()
@@ -584,9 +954,6 @@ def admin_delete_user(username: str, user: dict = Depends(require_admin)):
 
 
 # ---- email reports ----
-
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
 
 def esc_html(s):
     return (str(s if s is not None else "")
@@ -785,7 +1152,7 @@ def compute_report(user, win):
             ):
                 display.setdefault(r["person"], r["name"])
             per_user = [{"name": r["person"], "display": display.get(r["person"]),
-                         "email": _collected_email(conn, r["person"]),
+                         "email": r["person"] if is_email(r["person"]) else None,
                          "sessions": r["sessions"] or 0,
                          "tool_calls": r["tool_calls"] or 0, "skill_calls": r["skill_calls"] or 0,
                          "top_skills": sorted(tops.get(r["person"], []), key=lambda x: -x[1])[:3]}
@@ -944,14 +1311,18 @@ def _smtp_error_detail(exc):
     return msg
 
 
-class EmailBody(BaseModel):
-    email: str
-
-
 @app.post("/admin/users/{username}/email")
 def admin_set_email(username: str, body: EmailBody, user: dict = Depends(require_admin)):
-    email = body.email.strip()
-    if not EMAIL_RE.match(email) or len(email) > 254:
+    """Report mailbox for accounts whose login name is not an email.
+
+    Data-backed accounts use their address as both login name and mailbox, so
+    changing it means renaming the account (which also moves its records).
+    """
+    if is_email(username):
+        raise HTTPException(status_code=400,
+                            detail="该账号以邮箱为登录名，请修改账号邮箱（会同步迁移历史数据）")
+    email = norm_email(body.email)
+    if not email:
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
     with closing(connect()) as conn:
         cur = conn.execute("UPDATE users SET email = ? WHERE username = ?", (email, username))
@@ -969,18 +1340,22 @@ def _send_user_report(username, email, win):
     return "sent", ""
 
 
+def report_recipient(row):
+    """Mailbox a person's reports go to. Data-backed accounts have no separate
+    mailbox field: the account name is the address."""
+    if not row:
+        return ""
+    return row["email"] or (row["username"] if is_email(row["username"]) else "")
+
+
 @app.post("/admin/users/{username}/send_report")
 def admin_send_report(username: str, user: dict = Depends(require_admin)):
     row = get_user(username)
     if not row:
         raise HTTPException(status_code=404, detail="用户不存在")
-    recipient = row["email"]
+    recipient = report_recipient(row)
     if not recipient:
-        # no mailbox configured: use the Devin account email the collector saw
-        with closing(connect()) as conn:
-            recipient = _collected_email(conn, username)
-    if not recipient:
-        raise HTTPException(status_code=400, detail="该用户未配置邮箱，采集数据中也没有邮箱")
+        raise HTTPException(status_code=400, detail="该账号未配置邮箱")
     try:
         status, reason = _send_user_report(username, recipient, _report_window("manual"))
     except RuntimeError as exc:
@@ -997,8 +1372,10 @@ def _send_team_report(win):
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
         admins = conn.execute(
-            "SELECT username, email FROM users WHERE role = 'admin' AND email IS NOT NULL AND email != ''"
+            "SELECT username, role, email FROM users WHERE role = 'admin' ORDER BY username"
         ).fetchall()
+    admins = [(a, report_recipient(a)) for a in admins]
+    admins = [(a, to) for a, to in admins if to]
     if not admins:
         return "skipped", "没有配置邮箱的管理员", []
     rep = compute_report(None, win)
@@ -1007,12 +1384,12 @@ def _send_team_report(win):
     subject = report_subject(rep)
     html = build_team_report_html(rep)
     results = []
-    for a in admins:
+    for a, to in admins:
         try:
-            send_html_mail(a["email"], subject, html)
-            results.append({"to": a["email"], "status": "sent", "reason": ""})
+            send_html_mail(to, subject, html)
+            results.append({"to": to, "status": "sent", "reason": ""})
         except Exception as exc:
-            results.append({"to": a["email"], "status": "failed",
+            results.append({"to": to, "status": "failed",
                             "reason": f"{type(exc).__name__}: {exc}"})
     status = "sent" if any(r["status"] == "sent" for r in results) else "failed"
     return status, "", results
@@ -1036,14 +1413,12 @@ def _do_send_all(win):
     # Shared by the manual bulk endpoint and the scheduler
     with closing(connect()) as conn:
         conn.row_factory = sqlite3.Row
-        users = conn.execute("SELECT username, email FROM users").fetchall()
+        users = conn.execute(
+            "SELECT username, role, email FROM users WHERE status = 'active' ORDER BY username"
+        ).fetchall()
     results = []
     for r in users:
-        recipient = r["email"]
-        if not recipient:
-            # no mailbox configured: use the Devin account email the collector saw
-            with closing(connect()) as conn:
-                recipient = _collected_email(conn, r["username"])
+        recipient = report_recipient(r)
         if not recipient:
             results.append({"user": r["username"], "status": "skipped", "reason": "没有邮箱"})
             continue
@@ -1076,6 +1451,7 @@ class SmtpBody(BaseModel):
     user: Optional[str] = None
     password: Optional[str] = None
     security: Optional[str] = None
+    email_allowlist: Optional[str] = None
 
 
 class TestToBody(BaseModel):
@@ -1087,7 +1463,8 @@ def admin_get_smtp(user: dict = Depends(require_admin)):
     cfg = get_smtp_config()
     # 密码只写不可读：只返回是否已配置
     return {"host": cfg["host"], "port": cfg["port"], "user": cfg["user"],
-            "password_set": bool(cfg["password"]), "security": cfg["security"]}
+            "password_set": bool(cfg["password"]), "security": cfg["security"],
+            "email_allowlist": get_email_allowlist()}
 
 
 @app.post("/admin/smtp")
@@ -1108,6 +1485,8 @@ def admin_set_smtp(body: SmtpBody, user: dict = Depends(require_admin)):
         updates["security"] = body.security
     if updates:
         set_smtp_settings(updates)
+    if body.email_allowlist is not None:
+        set_email_allowlist(body.email_allowlist)
     return {"ok": True}
 
 
@@ -1281,24 +1660,6 @@ def _person_names(rows):
         if r["person"] not in names:  # rows are ordered by count desc
             names[r["person"]] = r["name"]
     return names
-
-
-def _collected_email(conn, person):
-    """The Devin account email the collector reported for this person.
-
-    Used as the fallback recipient for the email reports when the admin has
-    not configured a mailbox for the account: the collector already knows the
-    person's address, so there is no need to ask for it twice.
-    """
-    if not person:
-        return None
-    row = conn.execute(
-        f"SELECT email FROM events WHERE email IS NOT NULL AND {PERSON_SQL} = ?"
-        " ORDER BY timestamp DESC LIMIT 1",
-        (person,),
-    ).fetchone()
-    # positional access: the caller may or may not have set a Row factory
-    return row[0] if row and row[0] else None
 
 
 # Hourly buckets are only shipped for the last few days — that is the only
@@ -1521,9 +1882,14 @@ def dashboard(request: Request):
     user = current_user(request)
     if not user:
         return RedirectResponse("/login", status_code=302)
+    if user["must_change_password"]:
+        # the password was issued by someone else (invite mail, admin reset):
+        # nothing else is reachable until it has been replaced
+        return RedirectResponse("/login?change=1", status_code=302)
     markers = {
         "__USER__": _json_for_script(user),
-        "__DATA__": _json_for_script(compute_stats(None if user["role"] == "admin" else user["name"])),
+        "__DATA__": _json_for_script(
+            compute_stats(None if user["role"] == "admin" else user["name"])),
         "__GENERATED__": now_iso(),
     }
     html = DASHBOARD_PATH.read_text(encoding="utf-8")
@@ -1544,8 +1910,9 @@ def seed_default_admin():
             return
         try:
             conn.execute(
-                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
-                ("SUPER_ADMIN", hash_password("SUPER_ADMIN"), "admin", now_iso()),
+                "INSERT INTO users (username, password_hash, role, status, created_at)"
+                " VALUES (?, ?, 'admin', 'active', ?)",
+                ("SUPER_ADMIN", hash_password("SUPER_ADMIN"), now_iso()),
             )
             conn.commit()
             print(

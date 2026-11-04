@@ -1,8 +1,10 @@
 # tools-call-server
 
 FastAPI backend that ingests the NDJSON event batches uploaded by the
-`tools-call-collector` plugin and stores them in SQLite. Local-account login
-with admin/user roles protects the dashboard and stats API — see
+`tools-call-collector` plugin and stores them in SQLite. Accounts are opened
+from the data itself: the first record carrying an unseen email creates a local
+account named after that address and mails it a random password once. Login
+protects the dashboard and stats API — see
 [Login (local accounts)](#login-local-accounts); `/v1/events` stays open for
 collectors.
 
@@ -22,7 +24,7 @@ python3 -m venv .venv
 # 4. Verify
 curl http://<server-ip>:8420/health
 # open http://<server-ip>:8420/dashboard  → redirected to /login
-# first login: SUPER_ADMIN / SUPER_ADMIN — change it via 改密码 right away
+# first login: SUPER_ADMIN / SUPER_ADMIN — change it via 账号 → 修改我的密码
 ```
 
 The SQLite database is created automatically at `<server dir>/data/dashboard.db`
@@ -53,39 +55,82 @@ Environment:
 `/dashboard` and `/v1/stats` require login; `/v1/events`, `/health` and
 `/echarts` stay open for collectors and probes. Two roles:
 
-- **admin** — sees all data; manages users in the dashboard's 用户管理 tab
-  (add / reset password / change role / rename / delete)
+- **admin** — sees all data; manages accounts in 用户管理, configures the mail
+  settings, sends reports. Any admin can grant or revoke the role on another
+  account.
 - **user** — sees only their own records, matched against the **person key**
   the collector reports (see [Who a record belongs to](#who-a-record-belongs-to)).
-  Local usernames must equal that key, otherwise a user's view stays empty.
+
+No admin can act on its own role, delete itself or disable itself, and the API
+additionally refuses to remove the last remaining admin, so a database can
+never end up with no one able to manage it.
+
+### Accounts are provisioned from the data
+
+Normal users are never created by hand. The first record carrying an unseen
+email opens an account named after that address:
+
+- a random password (`secrets.token_urlsafe(12)`) is generated and **only its
+  PBKDF2 hash is stored**;
+- the plain text is mailed there **once**, from a background worker — ingestion
+  never blocks on SMTP and never fails because mail is unavailable;
+- `must_change_password` is set, so the first login lands on a forced
+  password-change screen and `/dashboard` / `/v1/stats` stay closed until the
+  password has been replaced;
+- the address is trimmed and lower-cased, so `Alice@Corp.com` and
+  `alice@corp.com` are one person;
+- a later record for a known address never sends another mail.
+
+The login name **is** the report mailbox — one field, so the two cannot drift
+apart. Records are matched by `COALESCE(email, user)`, which for such an account
+is exactly its name.
+
+**Allow-list** (用户管理 → 邮件发送设置 → 邮箱白名单): empty by default, which
+accepts every address. Entries are domains (`sercomm.com`, `*@sercomm.com`) or
+full addresses. Data from an address that is not listed is still ingested — it
+just does not open an account and sends no mail. This bounds who an anonymous
+`/v1/events` caller can make the server mail.
+
+**Accounts created by hand** (用户管理 → 添加管理员) are always administrators —
+a regular account only ever comes from the collector, so there is nothing to
+fill in for one. The name may be a non-email alias (`ops`), because an
+administrator sees everything anyway and is never matched to records by
+address; such an alias needs a report mailbox, an email-shaped name does not
+(the address *is* the mailbox). Leaving the password empty generates one and
+mails it, and the generated value is returned once so it can still be handed
+over when SMTP is down.
 
 ### 用户管理 tab
 
-Admins get a dedicated 用户管理 tab (between 用户分析 and 账号). It follows the
-DeepSeek Harness web UI language — hairline borders, layered radii, a dark
-primary button, quiet secondary labels — and replaces the old inline table with
-`prompt()`/`confirm()` prompts:
+Admins get a dedicated 用户管理 tab. It follows the DeepSeek Harness web UI
+language — hairline borders, layered radii, a dark primary button, quiet
+secondary labels:
 
-- **Overview cards** — account count, admin count, accounts with a report mailbox.
-- **Table** — one row per account with avatar, role tag, report mailbox
-  (falling back to the collected Devin email, marked as such), and creation time.
-  Search by username/email and filter by role.
-- **Row actions** — 编辑 opens a dialog for username / mailbox / role, the
-  `⋯` menu offers 发送报告, 重置密码 and 删除用户.
-- **Dialogs** — add, edit, reset password and a shared confirmation dialog.
-  Deleting asks for an explicit acknowledgement; a role change that would drop
-  the last admin is refused by the API.
-- **Feedback** — a toast confirms each action; form errors stay inline in the
-  dialog. No native browser dialogs are used anymore.
+- **Overview cards** — 账号总数, 管理员, 已停用 (with a count of undelivered
+  invite mails when there are any).
+- **Table** — one row per account: name (= its mailbox), 角色, 状态, 采集数据
+  (record count + last activity). Search by account/mailbox, filter by role.
+- **添加管理员** — the only manual account action. Regular accounts appear by
+  themselves when their data first arrives.
+- **邮件发送设置** — the SMTP relay (Outlook), the invite allow-list and the
+  report schedule sit at the bottom of the same tab: issuing a password and
+  mailing a report both depend on this one configuration, so they belong next
+  to the accounts they serve.
+- **Row actions** — 编辑 opens a dialog for the account name (changing it
+  migrates the account's records), role and — for alias admins only — the report
+  mailbox. The `⋯` menu offers 发送报告, 重置密码并发送, 停用/启用账号 and
+  删除账号.
+- **重置密码并发送** — generates a brand-new random password and mails it. Only
+  the hash is stored, so a resend always means a new password; the admin never
+  types or sees it. The account is forced to change it again on next login.
+- **停用 / 启用** — a disabled account cannot log in; its data is kept. Prefer
+  this over deleting for people who leave.
+- **删除账号** — removes the account only; collected records are kept.
 
-The backend endpoints are unchanged (`/admin/users`, `.../password`,
-`.../role`, `.../rename`, `.../email`, `.../send_report`, `.../delete`).
-
-**Access control** — the tab is hidden from regular users and the panel is
-never populated for them; every `/admin/*` endpoint is guarded by
-`require_admin`, so a direct API call returns 403 需要管理员权限. The role is
-re-read from the database on every request, so demoting an admin takes effect
-immediately.
+**Access control** — the tab is hidden from regular users and never populated
+for them; every `/admin/*` endpoint is guarded by `require_admin` (403 需要管理员
+权限 otherwise). The role is re-read from the database on every request, so
+demoting an admin takes effect immediately.
 
 ### Who a record belongs to
 
@@ -106,24 +151,20 @@ COALESCE(email, user)
   without a Devin login) keeps its local account name as the key.
 
 Every aggregation, filter and report uses that expression, so old and new
-records can live in the same table. A dashboard account named
-`ian_yin@sercomm.com` sees exactly the records of that Devin account; the
-dashboard shows the reported display name next to the key (`Ian Yin ·
-ian_yin@sercomm.com`).
+records can live in the same table. An account created from `ian_yin@sercomm.com`
+sees exactly the records of that Devin account; the dashboard shows the reported
+display name next to the key (`Ian Yin · ian_yin@sercomm.com`).
 
-**Report recipients**: the mailbox configured in the 用户管理 tab wins; when
-an account has none, the server falls back to the Devin email the collector
-reported for that person — the address is already known, so it does not have to
-be entered twice. Renaming a user (用户管理 tab → 编辑 → 用户名) migrates both
-the `user` field and the email of the matching records, so the account stays
-linked to its data.
+**Report recipients**: the account's mailbox — `users.email`, or the account
+name when that is an address (which it is for every account provisioned from
+data). Renaming an account (用户管理 → 编辑 → 账号) migrates both the `user`
+field and the email of its matching records, so it stays linked to its data.
 
 **Default admin**: on the first start (empty users table) the server creates
-`SUPER_ADMIN` with password `SUPER_ADMIN` — no manual step, no sqlite3 CLI
-needed. Log in, change that password via 改密码 (账号 tab), then manage all
-further users in the GUI (用户管理 tab: add / reset password / change role).
-The seed runs only while the users table is empty, so a changed password
-survives restarts.
+`SUPER_ADMIN` with password `SUPER_ADMIN` as an ordinary admin — no manual
+step, no sqlite3 CLI needed. Log in, change that password via 账号 → 修改我的密码,
+then manage every other account in 用户管理. The seed runs only while the users
+table is empty, so a changed password survives restarts.
 
 Forgot the admin password? Generate a new hash and update the row directly:
 
@@ -138,23 +179,17 @@ print('已重置')
 " "$HASH"
 ```
 
-Users change their own password in the 账号 tab. Renaming (including self)
-is admin-only, done from the 编辑 dialog in the 用户管理 tab. Passwords are
-stored as PBKDF2-SHA256 hashes (600k iterations, per-user salt).
-
-Renaming a user migrates their historical event records to the new name
-(login identity and data stay linked; the password is unchanged). Deleting a
-user removes only the account — their historical event records are kept.
+Users change their own password in the 账号 tab; the first login after an invite
+or an admin reset is forced through that screen. Passwords are stored as
+PBKDF2-SHA256 hashes (600k iterations, per-user salt).
 
 ## Email reports (Outlook)
 
-Admins can configure each user's mailbox in the 用户管理 tab (编辑 dialog →
-报告邮箱), then send the user's stats as an email per user (发送报告) or to
-everyone configured at once (发送报告 menu → 发送全部用户报告 — users without
-data in the window are skipped). An account with no configured mailbox falls
-back to the Devin email the collector reported for that person; accounts with
-neither are skipped with the reason 没有邮箱. The report is email-client-safe
-HTML (no JS — renders in Outlook).
+Every account's mailbox is its own login name, so the 用户管理 tab needs no
+separate address: send the user's stats as an email per user (发送报告) or to
+everyone at once (发送报告 menu → 发送全部用户报告 — accounts without data in the
+window are skipped; alias admins without a mailbox are skipped with the reason
+没有邮箱). The report is email-client-safe HTML (no JS — renders in Outlook).
 
 **Report content** (windowed, not all-history): a header line (window ·
 sessions · tool calls), KPI cards, then
@@ -177,7 +212,7 @@ status view; each team member still receives their own personal report.
 subject); scheduled 每天 covers yesterday; manual sends cover the last
 7 days. The subject includes the window.
 
-The sender (SMTP) configuration lives in the 账号 tab's 邮件发送设置 card
+The sender (SMTP) configuration lives in the 用户管理 tab's 邮件发送设置 card
 (admin-only): server / port / security (STARTTLS default, SSL, none) /
 sender mailbox, plus a 测试发送 button to verify. The sender address shown
 in recipients' inboxes is the sender mailbox itself. The GUI has no
@@ -260,9 +295,9 @@ and the 最常用的 Skill ranking with a sortable table; a 7/14/30/90-day/all
 window switch), 调用分析 (Skill-focused drill-down — 调用趋势, 谁在用 and a
 统计表 over 时间 × 用户 × 项目), 用户分析 (activity heatmap with a Skill filter, a Skill breakdown, and a
 per-user overview, see [用户分析](#用户分析); admins can pick any user, regular
-users are locked to their own records), 用户管理 (admin-only account management, see
-[用户管理 tab](#用户管理-tab)), 账号 (change own password; admins additionally
-get the SMTP and schedule cards). Data is embedded server-side on load and
+users are locked to their own records), 用户管理 (admin-only account management —
+invites, roles, disabling, password resets; see [用户管理 tab](#用户管理-tab)),
+账号 (change own password — the only thing a regular user can do there). Data is embedded server-side on load and
 refreshed via `/v1/stats` every 30 s (toggle) or on demand. Requires login; the
 header shows the signed-in user with 登出.
 
@@ -388,8 +423,12 @@ changing the window re-scopes the page at once.
 
 ### Admin / account endpoints
 
-`GET /admin/users`, `POST /admin/users`, `POST /admin/users/{username}/password`,
-`POST /admin/users/{username}/role`, `POST /admin/users/{username}/email`,
+`GET /admin/users`, `POST /admin/users`, `POST /admin/users/{username}/password`
+(issue a new random password and mail it), `POST /admin/users/{username}/status`
+(active/disabled), `POST /admin/users/{username}/role`,
+`POST /admin/users/{username}/email` (alias admins only),
+`POST /admin/users/{username}/rename` (migrates the account's records),
+`POST /admin/users/{username}/delete`,
 `POST /admin/users/{username}/send_report` (personal report, last 7 days),
 `POST /admin/send_all_reports` (per-user reports + team report, last 7 days),
 `POST /admin/send_team_report` (team report to all admins with a mailbox),

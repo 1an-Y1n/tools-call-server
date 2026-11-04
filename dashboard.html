@@ -149,6 +149,30 @@ button.pweye:hover{background:transparent;color:#3b7ddd}
 .um-stat-sub{margin-top:auto;padding-top:2px;font-size:11px;line-height:17px;color:var(--dsw-alias-label-tertiary)}
 .um-card{border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-xl);
   background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.um-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+  padding:16px;border-bottom:.5px solid var(--dsw-alias-border-l2)}
+.um-card-title{font-size:14px;line-height:22px;font-weight:500;letter-spacing:-.01em}
+.um-card-desc{margin-top:2px;max-width:560px;font-size:12px;line-height:18px;
+  color:var(--dsw-alias-label-tertiary)}
+.um-card-foot{padding:11px 16px;border-top:.5px solid var(--dsw-alias-border-l2);
+  font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.um-card-foot:empty{display:none}
+.um-setting-row{display:flex;align-items:flex-start;gap:10px;padding:12px 16px}
+.um-setting-row + .um-setting-row{border-top:.5px solid var(--dsw-alias-border-l1)}
+.um-setting-key{flex:none;width:76px;padding-top:9px;font-size:12.5px;line-height:20px;
+  color:var(--dsw-alias-label-tertiary)}
+.um-setting-val{display:flex;align-items:center;gap:8px;flex:1 1 320px;flex-wrap:wrap;min-width:0}
+.um-setting-sub{font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
+.um-setting-hint{flex:1 1 100%;font-size:11.5px;line-height:17px;
+  color:var(--dsw-alias-label-tertiary)}
+.um-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:20px;
+  color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
+.um-setting-val .um-input{width:auto;min-width:0}
+.um-setting-val .um-input.um-w-xs{width:120px}
+.um-setting-val .um-input.um-w-time{width:142px}
+.um-setting-val .um-input.um-w-sm{width:132px}
+.um-setting-val .um-input.um-w-md{width:224px}
+.um-setting-val .um-input.um-w-lg{flex:1 1 280px;width:auto;max-width:420px}
 .um-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 16px;
   border-bottom:.5px solid var(--dsw-alias-border-l2)}
 .um-search{position:relative;display:flex;align-items:center;gap:7px;flex:1 1 220px;max-width:320px;
@@ -199,6 +223,9 @@ table.um-table{width:100%;min-width:720px;border-collapse:collapse;font-size:13p
 .um-tag[data-tone="user"]{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary)}
 .um-tag[data-tone="self"]{border:.5px solid var(--dsw-alias-border-l4);color:var(--dsw-alias-label-tertiary)}
 .um-tag[data-tone="collected"]{background:#4176e60f;color:#3b6ac2}
+.um-tag[data-tone="on"]{background:#1a7f3714;color:#137a35}
+.um-tag[data-tone="off"]{background:#8b93a11a;color:#5b6472}
+.um-tag[data-tone="warn"]{background:#b4530914;color:#9a4a0c}
 .um-email{display:inline-flex;align-items:center;gap:6px;max-width:260px;font-size:13px;line-height:20px;
   color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .um-email.is-empty{color:var(--dsw-alias-label-dimmed)}
@@ -577,7 +604,7 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
       <div class="um-head">
         <div>
           <h2>用户管理</h2>
-          <p>管理登录账号、角色和报告邮箱。账号名与采集数据中的 Devin 邮箱或本机账号一致时，会自动关联使用记录。</p>
+          <p>账号即邮箱：采集端首次上报一个邮箱时会自动开通账号，并把初始密码发到该邮箱。这里负责授权、停用和重新发送密码。</p>
         </div>
         <div class="um-head-actions">
           <div class="um-menu-wrap">
@@ -590,8 +617,9 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
               <button type="button" role="menuitem" data-report="team"><span class="um-ico" data-icon="send"></span>发送团队汇总报告</button>
             </div>
           </div>
-          <button type="button" class="dsh-btn dsh-btn-primary" id="nu-add">
-            <span class="um-ico" data-icon="plus"></span><span class="um-btn-label">添加用户</span>
+          <button type="button" class="dsh-btn dsh-btn-primary" id="nu-add"
+            title="普通账号由采集数据自动创建，这里只添加管理员">
+            <span class="um-ico" data-icon="plus"></span><span class="um-btn-label">添加管理员</span>
           </button>
         </div>
       </div>
@@ -608,9 +636,9 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
           <span class="um-stat-sub">可查看全部数据并管理账号</span>
         </div>
         <div class="um-stat">
-          <span class="um-stat-label">已配置报告邮箱</span>
-          <span class="um-stat-value" id="um-count-email">–</span>
-          <span class="um-stat-sub" id="um-count-email-sub">未配置时回退到采集邮箱</span>
+          <span class="um-stat-label">已停用</span>
+          <span class="um-stat-value" id="um-count-off">–</span>
+          <span class="um-stat-sub" id="um-count-off-sub">停用后无法登录，数据保留</span>
         </div>
       </div>
 
@@ -618,7 +646,7 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
         <div class="um-toolbar">
           <label class="um-search">
             <span class="um-ico" data-icon="search"></span>
-            <input id="um-search" type="search" placeholder="搜索用户名或邮箱" autocomplete="off" aria-label="搜索用户">
+            <input id="um-search" type="search" placeholder="搜索账号或邮箱" autocomplete="off" aria-label="搜索用户">
             <button type="button" class="um-search-clear" id="um-search-clear" aria-label="清除搜索" hidden>
               <span class="um-ico" data-icon="close"></span>
             </button>
@@ -632,6 +660,70 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
         </div>
         <div id="t-admin" class="um-table-wrap" aria-live="polite"></div>
       </div>
+      <div class="um-card" id="smtp-card" style="display:none">
+        <div class="um-card-head">
+          <div>
+            <div class="um-card-title">邮件发送设置（Outlook）</div>
+            <div class="um-card-desc">账号开通邮件、密码重置邮件和统计报告都通过这台 SMTP 发送。</div>
+          </div>
+          <button type="button" class="dsh-btn dsh-btn-primary dsh-btn-sm" id="smtp-save">
+            <span class="um-spinner"></span><span class="um-btn-label">保存设置</span>
+          </button>
+        </div>
+        <div class="um-setting-row">
+          <span class="um-setting-key">服务器</span>
+          <div class="um-setting-val">
+            <input class="um-input um-w-md" id="smtp-host" autocomplete="off" placeholder="SMTP 服务器地址">
+            <span class="um-setting-sub">端口</span>
+            <input class="um-input um-w-xs" id="smtp-port" autocomplete="off" placeholder="25 / 587">
+            <span class="um-setting-sub">安全</span>
+            <select class="um-input um-w-sm" id="smtp-security">
+              <option value="starttls">STARTTLS</option>
+              <option value="ssl">SSL</option>
+              <option value="none">无加密</option>
+            </select>
+          </div>
+        </div>
+        <div class="um-setting-row">
+          <span class="um-setting-key">发件账号</span>
+          <div class="um-setting-val">
+            <input class="um-input um-w-lg" id="smtp-user" autocomplete="off" placeholder="发件邮箱（中继免密码）">
+          </div>
+        </div>
+        <div class="um-setting-row">
+          <span class="um-setting-key">邮箱白名单</span>
+          <div class="um-setting-val">
+            <input class="um-input um-w-lg" id="smtp-allowlist" autocomplete="off"
+              placeholder="留空 = 接受所有邮箱；例：sercomm.com partner.com">
+            <span class="um-setting-hint">只有白名单内的地址会自动开通账号；其余采集数据照常入库，但不建号、不发邮件。
+              支持域名（sercomm.com / *@sercomm.com）或完整地址。</span>
+          </div>
+        </div>
+        <div class="um-setting-row">
+          <span class="um-setting-key">测试收件</span>
+          <div class="um-setting-val">
+            <input class="um-input um-w-md" id="smtp-test-to" autocomplete="off" placeholder="test@sercomm.com">
+            <button type="button" id="smtp-test" class="dsh-btn dsh-btn-outline dsh-btn-sm"
+              title="保存 SMTP 配置并发送一封测试邮件（不会改动定时设置）">测试发送</button>
+          </div>
+        </div>
+        <div class="um-setting-row">
+          <span class="um-setting-key">定时报告</span>
+          <div class="um-setting-val">
+            <label class="um-check"><input type="checkbox" id="sched-daily-on"> 每天（日报）</label>
+            <input class="um-input um-w-time" id="sched-daily-time" type="time" value="09:00">
+            <label class="um-check"><input type="checkbox" id="sched-weekly-on"> 每周（周报）</label>
+            <select class="um-input um-w-sm" id="sched-weekly-day">
+              <option value="0">周一</option><option value="1">周二</option><option value="2">周三</option>
+              <option value="3">周四</option><option value="4">周五</option><option value="5">周六</option>
+              <option value="6">周日</option>
+            </select>
+            <input class="um-input um-w-time" id="sched-weekly-time" type="time" value="09:00">
+            <span class="um-setting-hint" id="sched-last"></span>
+          </div>
+        </div>
+        <div class="um-card-foot" id="smtp-msg"></div>
+      </div>
     </div>
   </div>
 
@@ -644,49 +736,6 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
         <span class="muted" id="pw-msg"></span>
       </div>
     </div>
-    <div class="card" id="smtp-card" style="display:none"><div class="ttl">邮件发送设置（Outlook）</div>
-      <div class="toolbar">
-        <span class="muted">服务器</span>
-        <input id="smtp-host" size="20" placeholder="SMTP 服务器地址">
-        <span class="muted">端口</span>
-        <input id="smtp-port" size="5" placeholder="25 / 587">
-        <span class="muted">安全</span>
-        <select id="smtp-security">
-          <option value="starttls">STARTTLS</option>
-          <option value="ssl">SSL</option>
-          <option value="none">无加密</option>
-        </select>
-      </div>
-      <div class="toolbar">
-        <span class="muted">账号</span>
-        <input id="smtp-user" size="24" placeholder="发件邮箱（中继免密码）">
-      </div>
-      <div class="toolbar">
-        <span class="muted">测试收件</span>
-        <input id="smtp-test-to" size="24" placeholder="test@sercomm.com">
-        <button id="smtp-test" class="dsh-btn dsh-btn-outline"
-          title="保存 SMTP 配置并发送一封测试邮件（不会改动定时设置）">测试发送</button>
-      </div>
-      <div class="toolbar">
-        <span class="muted">定时发送</span>
-        <label><input type="checkbox" id="sched-daily-on"> 每天（日报）</label>
-        <input id="sched-daily-time" type="time" value="09:00">
-        <label><input type="checkbox" id="sched-weekly-on"> 每周（周报）</label>
-        <select id="sched-weekly-day">
-          <option value="0">周一</option><option value="1">周二</option><option value="2">周三</option>
-          <option value="3">周四</option><option value="4">周五</option><option value="5">周六</option>
-          <option value="6">周日</option>
-        </select>
-        <input id="sched-weekly-time" type="time" value="09:00">
-      </div>
-      <div class="toolbar">
-        <span class="muted" id="sched-last"></span>
-      </div>
-      <div class="toolbar">
-        <button class="dsh-btn dsh-btn-primary" id="smtp-save">保存设置</button>
-        <span class="muted" id="smtp-msg"></span>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -694,8 +743,8 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
   <form class="um-dialog-inner" id="form-user" novalidate>
     <div class="um-dialog-head">
       <div>
-        <h3 class="um-dialog-title" id="dlg-user-title">添加用户</h3>
-        <p class="um-dialog-desc" id="dlg-user-desc">创建一个本地登录账号，创建后可继续配置报告邮箱。</p>
+        <h3 class="um-dialog-title" id="dlg-user-title">添加管理员</h3>
+        <p class="um-dialog-desc" id="dlg-user-desc">创建账号，或修改已有账号的邮箱、角色与状态。</p>
       </div>
       <button type="button" class="um-dialog-close" data-close aria-label="关闭">
         <span class="um-ico" data-icon="close"></span>
@@ -710,31 +759,31 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
         </div>
       </div>
       <label class="um-field">
-        <span class="um-label">用户名 <span class="um-required">*</span></span>
-        <input class="um-input" id="f-user-name" maxlength="64" autocomplete="off" placeholder="Devin 邮箱或本机账号名">
-        <span class="um-hint" id="f-user-name-hint">需与采集数据中的人一致：Devin 邮箱或本机账号名。</span>
+        <span class="um-label">账号 <span class="um-required">*</span></span>
+        <input class="um-input" id="f-user-name" maxlength="254" autocomplete="off" placeholder="name@company.com">
+        <span class="um-hint" id="f-user-name-hint">普通用户必须使用邮箱；管理员可以使用别名。</span>
         <span class="um-error" id="err-user-name"></span>
       </label>
       <div class="um-field" id="f-email-field" hidden>
         <label class="um-label" for="f-user-email">报告邮箱</label>
         <input class="um-input" id="f-user-email" type="email" maxlength="254" autocomplete="off" placeholder="name@company.com">
-        <span class="um-hint" id="f-email-hint">留空则使用采集数据中的 Devin 邮箱。</span>
+        <span class="um-hint" id="f-email-hint">仅管理员别名需要单独填写；账号为邮箱时报告邮箱与账号一致。</span>
         <span class="um-error" id="err-user-email"></span>
       </div>
       <div class="um-field" id="f-pass-field">
-        <label class="um-label" for="f-user-pass">初始密码 <span class="um-required">*</span></label>
+        <label class="um-label" for="f-user-pass">初始密码</label>
         <span class="um-pw">
           <input class="um-input" id="f-user-pass" type="password" autocomplete="new-password" placeholder="至少 8 位">
           <button type="button" data-eye="f-user-pass" aria-label="显示密码"><span class="um-ico" data-icon="eye"></span></button>
         </span>
-        <span class="um-hint">至少 8 位；用户登录后可自行修改。</span>
+        <span class="um-hint">留空则生成随机密码并发送到该账号邮箱（管理员别名需手填）。</span>
         <span class="um-error" id="err-user-pass"></span>
       </div>
-      <div class="um-field">
+      <div class="um-field" id="f-role-field">
         <span class="um-label">角色</span>
         <div class="um-role" id="f-user-role">
           <label><input type="radio" name="f-user-role" value="user" checked><span class="t">普通用户</span><span class="d">只能查看自己的数据</span></label>
-          <label><input type="radio" name="f-user-role" value="admin"><span class="t">管理员</span><span class="d">管理账号与全部数据</span></label>
+          <label><input type="radio" name="f-user-role" value="admin"><span class="t">管理员</span><span class="d">管理账号、邮件配置与全部数据</span></label>
         </div>
         <span class="um-hint" id="f-user-role-hint" hidden>不能修改自己的角色。</span>
       </div>
@@ -745,55 +794,7 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
     <div class="um-dialog-foot">
       <button type="button" class="dsh-btn dsh-btn-ghost" data-close>取消</button>
       <button type="submit" class="dsh-btn dsh-btn-primary" id="f-user-save">
-        <span class="um-spinner"></span><span class="um-btn-label">添加用户</span>
-      </button>
-    </div>
-  </form>
-</dialog>
-
-<dialog class="um-dialog" id="dlg-password" aria-labelledby="dlg-password-title">
-  <form class="um-dialog-inner" id="form-password" novalidate>
-    <div class="um-dialog-head">
-      <div>
-        <h3 class="um-dialog-title" id="dlg-password-title">重置密码</h3>
-        <p class="um-dialog-desc">为该账号设置一个新密码。</p>
-      </div>
-      <button type="button" class="um-dialog-close" data-close aria-label="关闭">
-        <span class="um-ico" data-icon="close"></span>
-      </button>
-    </div>
-    <div class="um-dialog-body">
-      <div class="um-identity">
-        <span class="um-avatar" id="pw-user-avatar">A</span>
-        <div class="um-identity-copy">
-          <div class="um-identity-name" id="pw-user-name">—</div>
-          <div class="um-identity-sub">重置后旧密码立即失效</div>
-        </div>
-      </div>
-      <div class="um-field">
-        <label class="um-label" for="f-pw-new">新密码 <span class="um-required">*</span></label>
-        <span class="um-pw">
-          <input class="um-input" id="f-pw-new" type="password" autocomplete="new-password" placeholder="至少 8 位">
-          <button type="button" data-eye="f-pw-new" aria-label="显示密码"><span class="um-ico" data-icon="eye"></span></button>
-        </span>
-        <span class="um-error" id="err-pw-new"></span>
-      </div>
-      <div class="um-field">
-        <label class="um-label" for="f-pw-confirm">确认新密码 <span class="um-required">*</span></label>
-        <span class="um-pw">
-          <input class="um-input" id="f-pw-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码">
-          <button type="button" data-eye="f-pw-confirm" aria-label="显示密码"><span class="um-ico" data-icon="eye"></span></button>
-        </span>
-        <span class="um-error" id="err-pw-confirm"></span>
-      </div>
-      <div class="um-form-error" id="err-pw-form" hidden>
-        <span class="um-ico" data-icon="alert"></span><span id="err-pw-form-text"></span>
-      </div>
-    </div>
-    <div class="um-dialog-foot">
-      <button type="button" class="dsh-btn dsh-btn-ghost" data-close>取消</button>
-      <button type="submit" class="dsh-btn dsh-btn-primary" id="f-pw-save">
-        <span class="um-spinner"></span><span class="um-btn-label">重置密码</span>
+        <span class="um-spinner"></span><span class="um-btn-label">添加管理员</span>
       </button>
     </div>
   </form>
@@ -841,7 +842,9 @@ table.xtab tbody tr:hover td:first-child{background:#fafbfc}
 <script>
 let DATA = __DATA__;
 const USER = __USER__;
-let isAdmin = !!(USER && USER.role === "admin");
+const ROLE_RANK = { user: 0, admin: 1 };
+function roleRank(role){ return ROLE_RANK[role] === undefined ? 0 : ROLE_RANK[role]; }
+const isAdmin = !!(USER && roleRank(USER.role) >= ROLE_RANK.admin);
 let selectedUser = "__all__";
 
 const esc = (s) => String(s == null ? "" : s).replace(/&/g, "\u0026amp;").replace(/</g, "\u0026lt;")
@@ -1119,6 +1122,7 @@ const ICONS = {
   more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  ban: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>',
   inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/></svg>'
@@ -1992,7 +1996,13 @@ function findUser(name){
   return UM.users.find(u => u.username === name) || null;
 }
 function userRecipient(u){
-  return (u && (u.email || u.collected_email)) || "";
+  if (!u) return "";
+  if (u.email) return u.email;
+  return UM_EMAIL_RE.test(String(u.username || "")) ? u.username : "";
+}
+function isEmailName(name){ return UM_EMAIL_RE.test(String(name || "")); }
+function roleLabel(role){
+  return role === "admin" ? "管理员" : "普通用户";
 }
 function setBusy(btn, busy){
   if (!btn) return;
@@ -2018,11 +2028,6 @@ function clearUserFormErrors(){
   markField("f-user-email", "err-user-email", "");
   markField("f-user-pass", "err-user-pass", "");
   showFormError("err-user-form", "err-user-form-text", "");
-}
-function clearPasswordErrors(){
-  markField("f-pw-new", "err-pw-new", "");
-  markField("f-pw-confirm", "err-pw-confirm", "");
-  showFormError("err-pw-form", "err-pw-form-text", "");
 }
 function resetEyes(scope){
   scope.querySelectorAll("[data-eye]").forEach(btn => {
@@ -2073,30 +2078,36 @@ function umPost(url, body){
 }
 
 function renderUserStats(){
-  const total = UM.users.length;
-  const admins = UM.users.filter(u => u.role === "admin").length;
-  const emails = UM.users.filter(u => u.email).length;
-  const fallbacks = UM.users.filter(u => !u.email && u.collected_email).length;
   const failed = !!UM.error && !UM.loaded;
+  const total = UM.users.length;
+  const admins = UM.users.filter(u => roleRank(u.role) >= ROLE_RANK.admin).length;
+  const off = UM.users.filter(u => u.status === "disabled").length;
+  const stuck = UM.users.filter(u => !u.invite_sent_at && u.invite_error).length;
+  const latest = UM.users.map(u => u.last_seen).filter(Boolean).sort().slice(-1)[0];
   document.getElementById("um-count-all").textContent = failed ? "–" : total;
   document.getElementById("um-count-admins").textContent = failed ? "–" : admins;
-  document.getElementById("um-count-email").textContent = failed ? "–" : emails;
-  const latest = UM.users.map(u => u.created_at).filter(Boolean).sort().slice(-1)[0];
+  document.getElementById("um-count-off").textContent = failed ? "–" : off;
   document.getElementById("um-count-all-sub").textContent =
-    failed ? "数据加载失败" : (latest ? `最近创建 ${fmtUserDate(latest)}` : "还没有创建账号");
-  document.getElementById("um-count-email-sub").textContent =
-    failed ? "未配置时回退到采集邮箱" :
-    (fallbacks ? `另有 ${fallbacks} 位使用采集邮箱` : "未配置时回退到采集邮箱");
+    failed ? "数据加载失败"
+      : (latest ? `最近有数据 ${fmtUserDate(latest)}` : "还没有采集到数据");
+  document.getElementById("um-count-off-sub").textContent =
+    failed ? "停用后无法登录，数据保留"
+      : (stuck ? `${stuck} 个账号的邀请邮件未送达` : "停用后无法登录，数据保留");
 }
 
 function filteredUsers(){
   const q = UM.query.trim().toLowerCase();
   return UM.users.filter(u => {
-    if (UM.role !== "all" && u.role !== UM.role) return false;
+    if (UM.role === "admin" && roleRank(u.role) < ROLE_RANK.admin) return false;
+    if (UM.role === "user" && roleRank(u.role) > ROLE_RANK.user) return false;
     if (!q) return true;
-    return [u.username, u.email, u.collected_email]
+    return [u.username, u.email]
       .some(v => String(v || "").toLowerCase().includes(q));
-  }).sort((a, b) => String(a.username).localeCompare(String(b.username), "zh-CN", { sensitivity: "base" }));
+  }).sort((a, b) => {
+    const rank = roleRank(b.role) - roleRank(a.role);
+    if (rank) return rank;
+    return String(a.username).localeCompare(String(b.username), "zh-CN", { sensitivity: "base" });
+  });
 }
 
 function userSkeleton(){
@@ -2125,34 +2136,36 @@ function emptyState(title, desc, actionHtml){
 }
 function userRowHtml(u){
   const self = u.username === UM.self;
-  const admin = u.role === "admin";
-  const email = u.email || "", collected = u.collected_email || "";
-  let emailHtml;
-  if (email){
-    emailHtml = '<span class="um-email">' + esc(email) + '</span>';
-    if (collected && collected !== email)
-      emailHtml += '<div class="um-email-note">采集邮箱：' + esc(collected) + '</div>';
-  } else if (collected){
-    emailHtml = '<span class="um-email">' + esc(collected) + '</span>' +
-      '<div class="um-email-note"><span class="um-tag" data-tone="collected">采集邮箱</span></div>';
-  } else {
-    emailHtml = '<span class="um-email is-empty">未配置</span>';
-  }
-  const sub = self ? "当前登录账号" : (collected ? "已关联采集数据" : "暂无采集数据");
-  return '<tr>' +
+  const rank = roleRank(u.role);
+  const disabled = u.status === "disabled";
+  const inviteFailed = !u.invite_sent_at && !!u.invite_error;
+  const pendingLabel = inviteFailed ? "邀请未送达" : (u.must_change_password ? "待改密" : "");
+  const pending = !!pendingLabel;
+  let roleTag = '<span class="um-tag" data-tone="' + (rank >= 1 ? "admin" : "user") + '">' +
+    roleLabel(u.role) + '</span>';
+  const statusTag = '<span class="um-tag" data-tone="' + (disabled ? "off" : "on") + '">' +
+    (disabled ? "已停用" : "正常") + '</span>';
+  const subParts = [];
+  if (u.last_login_at) subParts.push("最近登录 " + fmtUserDate(u.last_login_at));
+  else subParts.push("从未登录");
+  const usage = u.event_count
+    ? `<b>${Number(u.event_count).toLocaleString("zh-CN")}</b> 条`
+    : '<span class="um-email is-empty">无数据</span>';
+  const seen = u.last_seen ? '<div class="um-email-note">' + esc(fmtUserDate(u.last_seen)) + '</div>' : '';
+  return '<tr' + (disabled ? ' class="is-off"' : '') + '>' +
     '<td><div class="um-user">' +
-      `<span class="um-avatar${admin ? " is-admin" : ""}">${esc(userInitials(u.username))}</span>` +
+      `<span class="um-avatar${rank >= 1 ? " is-admin" : ""}">${esc(userInitials(u.username))}</span>` +
       '<div class="um-user-copy">' +
         '<div class="um-user-name"><span>' + esc(u.username) + '</span>' +
           (self ? '<span class="um-tag" data-tone="self">我</span>' : '') +
+          (pending ? '<span class="um-tag" data-tone="warn">' + pendingLabel + '</span>' : '') +
         '</div>' +
-        '<div class="um-user-sub">' + sub + '</div>' +
+        '<div class="um-user-sub">' + subParts.join(" · ") + '</div>' +
       '</div>' +
     '</div></td>' +
-    '<td><span class="um-tag" data-tone="' + (admin ? 'admin' : 'user') + '">' +
-      (admin ? '管理员' : '普通用户') + '</span></td>' +
-    '<td>' + emailHtml + '</td>' +
-    '<td class="um-date">' + esc(fmtUserDate(u.created_at)) + '</td>' +
+    '<td>' + roleTag + '</td>' +
+    '<td>' + statusTag + '</td>' +
+    '<td class="um-date">' + usage + seen + '</td>' +
     '<td><div class="um-actions">' +
       `<button type="button" class="dsh-btn dsh-btn-outline dsh-btn-sm" data-act="edit" data-user="${esc(u.username)}">编辑</button>` +
       `<button type="button" class="um-icon-btn" data-act="more" data-user="${esc(u.username)}" ` +
@@ -2181,9 +2194,9 @@ function renderUsers(){
   const filtering = !!UM.query.trim() || UM.role !== "all";
   meta.textContent = filtering ? `显示 ${list.length} / ${UM.users.length} 位` : `共 ${UM.users.length} 位用户`;
   if (!UM.users.length){
-    box.innerHTML = emptyState("还没有用户", "添加第一个账号后，就可以在这里管理角色和报告邮箱。",
+    box.innerHTML = emptyState("还没有账号", "普通账号会在采集数据到达时自动创建；管理员可以在这里手动添加。",
       '<button type="button" class="dsh-btn dsh-btn-primary" data-act="add">' + ico("plus") +
-      '<span class="um-btn-label">添加用户</span></button>');
+      '<span class="um-btn-label">添加管理员</span></button>');
     return;
   }
   if (!list.length){
@@ -2192,8 +2205,8 @@ function renderUsers(){
     return;
   }
   box.innerHTML = '<table class="um-table" aria-label="用户列表"><thead><tr>' +
-    '<th scope="col">用户</th><th scope="col">角色</th><th scope="col">报告邮箱</th>' +
-    '<th scope="col">创建时间</th><th scope="col" style="text-align:right">操作</th>' +
+    '<th scope="col">账号</th><th scope="col">角色</th><th scope="col">状态</th>' +
+    '<th scope="col">采集数据</th><th scope="col" style="text-align:right">操作</th>' +
     '</tr></thead><tbody>' + list.map(userRowHtml).join("") + '</tbody></table>';
 }
 
@@ -2244,7 +2257,6 @@ document.querySelectorAll("dialog.um-dialog").forEach(dialog => {
   dialog.addEventListener("close", () => {
     if (!document.querySelector("dialog.um-dialog[open]")) document.body.style.overflow = "";
     if (dialog.id === "dlg-user") UM.editing = null;
-    if (dialog.id === "dlg-password") UM.resetting = null;
     if (dialog.id === "dlg-confirm") UM.confirmAction = null;
     if (UM.lastFocus && typeof UM.lastFocus.focus === "function") UM.lastFocus.focus();
   });
@@ -2265,24 +2277,29 @@ function openAddUser(){
   const form = document.getElementById("form-user");
   form.reset();
   clearUserFormErrors();
-  document.getElementById("dlg-user-title").textContent = "添加用户";
-  document.getElementById("dlg-user-desc").textContent = "创建一个本地登录账号，创建后可继续配置报告邮箱。";
+  document.getElementById("dlg-user-title").textContent = "添加管理员";
+  document.getElementById("dlg-user-desc").textContent =
+    "普通账号由采集数据自动创建，这里只添加管理员。账号可以是邮箱或别名，别名需要单独填写报告邮箱。";
   document.getElementById("dlg-user-identity").hidden = true;
-  document.getElementById("f-email-field").hidden = true;
+  document.getElementById("f-email-field").hidden = false;
   document.getElementById("f-email-field").querySelector("input").value = "";
+  document.getElementById("f-email-hint").textContent =
+    "账号是邮箱时可留空（报告邮箱与账号一致）；管理员别名需要单独填写。";
   document.getElementById("f-pass-field").hidden = false;
   const nameEl = document.getElementById("f-user-name");
   nameEl.disabled = false;
   nameEl.value = "";
   document.getElementById("f-user-name-hint").textContent =
-    "需与采集数据中的人一致：Devin 邮箱或本机账号名。";
+    "邮箱或别名都行；用别名时记得填下面的报告邮箱。";
+  // the role is fixed to admin when creating: regular accounts come from data
+  document.getElementById("f-role-field").hidden = true;
   document.querySelectorAll('input[name="f-user-role"]').forEach(r => {
     r.disabled = false;
-    r.checked = r.value === "user";
+    r.checked = r.value === "admin";
   });
   document.getElementById("f-user-role-hint").hidden = true;
   const label = document.querySelector("#f-user-save .um-btn-label");
-  if (label) label.textContent = "添加用户";
+  if (label) label.textContent = "添加管理员";
   resetEyes(dlg);
   showDialog(dlg, "#f-user-name");
 }
@@ -2296,54 +2313,61 @@ function openEditUser(username){
   form.reset();
   clearUserFormErrors();
   const isSelf = u.username === UM.self;
-  const admin = u.role === "admin";
-  document.getElementById("dlg-user-title").textContent = "编辑用户";
-  document.getElementById("dlg-user-desc").textContent = "修改账号名会同步迁移该用户的历史调用记录。";
+  const rank = roleRank(u.role);
+  document.getElementById("dlg-user-title").textContent = "编辑账号";
+  document.getElementById("dlg-user-desc").textContent =
+    "修改邮箱会同步迁移该账号的历史调用记录。";
   document.getElementById("dlg-user-identity").hidden = false;
   const avatar = document.getElementById("dlg-user-avatar");
-  avatar.className = "um-avatar" + (admin ? " is-admin" : "");
+  avatar.className = "um-avatar" + (rank >= 1 ? " is-admin" : "");
   avatar.textContent = userInitials(u.username);
   document.getElementById("dlg-user-name").textContent = u.username;
-  document.getElementById("dlg-user-meta").textContent = "创建于 " + fmtUserDate(u.created_at);
+  document.getElementById("dlg-user-meta").textContent =
+    roleLabel(u.role) + " · 创建于 " + fmtUserDate(u.created_at);
   const nameEl = document.getElementById("f-user-name");
   nameEl.disabled = false;
   nameEl.value = u.username;
   document.getElementById("f-user-name-hint").textContent =
-    "修改后会同步迁移该账号的历史调用记录。";
+    "修改后会同步迁移该账号的历史调用记录；普通用户的账号必须是邮箱。";
   const emailField = document.getElementById("f-email-field");
-  emailField.hidden = false;
-  emailField.querySelector("input").value = u.email || "";
-  const collected = u.collected_email || "";
-  document.getElementById("f-email-hint").textContent = u.email
-    ? (collected ? `留空则保留当前邮箱；采集邮箱：${collected}` : "留空则保留当前邮箱。")
-    : (collected ? `留空则使用采集邮箱：${collected}` : "留空则使用采集数据中的 Devin 邮箱。");
+  const emailShown = !isEmailName(u.username);
+  emailField.hidden = !emailShown;
+  emailField.querySelector("input").value = emailShown ? (u.email || "") : "";
+  document.getElementById("f-email-hint").textContent =
+    "仅管理员别名需要单独填写；账号为邮箱时报告邮箱与账号一致。";
   document.getElementById("f-pass-field").hidden = true;
+  document.getElementById("f-role-field").hidden = false;
   document.querySelectorAll('input[name="f-user-role"]').forEach(r => {
     r.checked = r.value === u.role;
     r.disabled = isSelf;
   });
   const roleHint = document.getElementById("f-user-role-hint");
   roleHint.hidden = !isSelf;
+  roleHint.textContent = "不能修改自己的角色。";
   const label = document.querySelector("#f-user-save .um-btn-label");
   if (label) label.textContent = "保存修改";
   resetEyes(dlg);
   showDialog(dlg, "#f-user-name");
-  setTimeout(() => nameEl.select(), 40);
+  setTimeout(() => { if (!nameEl.disabled) nameEl.select(); }, 40);
 }
 
 function openPasswordDialog(username){
   const u = findUser(username);
   if (!u){ toast("该用户已不在列表中，请刷新后重试", "error"); loadUsers(); return; }
-  UM.resetting = u;
-  const dlg = document.getElementById("dlg-password");
-  document.getElementById("form-password").reset();
-  clearPasswordErrors();
-  const avatar = document.getElementById("pw-user-avatar");
-  avatar.className = "um-avatar" + (u.role === "admin" ? " is-admin" : "");
-  avatar.textContent = userInitials(u.username);
-  document.getElementById("pw-user-name").textContent = u.username;
-  resetEyes(dlg);
-  showDialog(dlg, "#f-pw-new");
+  const to = userRecipient(u);
+  if (!to){ toast("该账号未配置邮箱，无法发送新密码", "error"); return; }
+  openConfirm({
+    title: "重置密码并发送",
+    description: "系统会生成一个新的随机密码并邮件发送到该账号邮箱，旧密码立即失效。",
+    message: `账号：「${u.username}」`,
+    detail: "收件邮箱：" + to,
+    confirmText: "重置并发送",
+    onConfirm: async () => {
+      await umPost(`/admin/users/${encodeURIComponent(u.username)}/password`);
+      toast(`新密码已发送至 ${to}`);
+      await loadUsers();
+    }
+  });
 }
 
 function openConfirm(opts){
@@ -2380,7 +2404,7 @@ function confirmSendReport(username){
   const u = findUser(username);
   if (!u) return;
   const to = userRecipient(u);
-  if (!to){ toast("该用户未配置邮箱，采集数据中也没有邮箱", "error"); return; }
+  if (!to){ toast("该账号未配置邮箱", "error"); return; }
   openConfirm({
     title: "发送用户报告",
     description: "报告使用最近 7 天窗口，发送后无法撤回。",
@@ -2466,14 +2490,18 @@ function openUserMenu(anchor, username){
   UM.menuAnchor = anchor;
   const self = u.username === UM.self;
   const to = userRecipient(u);
+  const disabled = u.status === "disabled";
   userMenu.innerHTML =
     '<div class="um-menu-head">' + esc(u.username) + '</div>' +
     `<button type="button" role="menuitem" data-menu-act="report" title="${to ? esc(to) : "未配置邮箱"}">` +
       `${ico("send")}发送报告</button>` +
-    `<button type="button" role="menuitem" data-menu-act="password">${ico("key")}重置密码</button>` +
+    `<button type="button" role="menuitem" data-menu-act="password"${!to ? " disabled" : ""}>` +
+      `${ico("key")}重置密码并发送</button>` +
+    `<button type="button" role="menuitem" data-menu-act="status"${self ? " disabled" : ""}>` +
+      `${ico(disabled ? "check" : "ban")}${disabled ? "启用账号" : "停用账号"}</button>` +
     '<div class="um-menu-sep"></div>' +
     `<button type="button" role="menuitem" class="danger" data-menu-act="delete"${self ? " disabled" : ""}>` +
-      `${ico("trash")}删除用户</button>`;
+      `${ico("trash")}删除账号</button>`;
   userMenu.hidden = false;
   anchor.setAttribute("aria-expanded", "true");
   positionFloatingMenu(anchor, userMenu);
@@ -2523,6 +2551,7 @@ userMenu.addEventListener("click", ev => {
   if (!u) return;
   if (act === "report") confirmSendReport(u.username);
   else if (act === "password") openPasswordDialog(u.username);
+  else if (act === "status") confirmToggleStatus(u);
   else if (act === "delete") confirmDeleteUser(u);
 });
 reportBtn.addEventListener("click", ev => {
@@ -2554,20 +2583,39 @@ document.addEventListener("keydown", ev => {
 window.addEventListener("resize", () => { closeUserMenu(); closeReportMenu(); });
 window.addEventListener("scroll", () => { closeUserMenu(); closeReportMenu(); }, true);
 
+function confirmToggleStatus(u){
+  const disabled = u.status === "disabled";
+  const next = disabled ? "active" : "disabled";
+  openConfirm({
+    title: disabled ? "启用账号" : "停用账号",
+    description: disabled
+      ? "启用后该账号可以重新登录，历史数据不受影响。"
+      : "停用后该账号无法登录，采集到的数据仍然保留。",
+    message: `账号：「${u.username}」`,
+    confirmText: disabled ? "启用" : "停用",
+    danger: !disabled,
+    onConfirm: async () => {
+      await umPost(`/admin/users/${encodeURIComponent(u.username)}/status`, { status: next });
+      toast(`已${disabled ? "启用" : "停用"} ${u.username}`);
+      await loadUsers();
+    }
+  });
+}
+
 function confirmDeleteUser(u){
   if (u.username === UM.self) return;
   openConfirm({
     title: "删除用户",
     description: "账号会从用户管理列表中移除。",
-    message: "删除后该账号无法登录，历史调用记录会保留。",
-    detail: "用户名：" + u.username,
+    message: "删除后该账号无法登录，历史调用记录会保留。若只是暂时离开，建议改用停用。",
+    detail: "账号：" + u.username,
     confirmText: "删除用户",
     danger: true,
     requiresAck: true,
     ackText: "我了解此操作不可撤销。",
     onConfirm: async () => {
       await umPost(`/admin/users/${encodeURIComponent(u.username)}/delete`);
-      toast(`已删除用户 ${u.username}`);
+      toast(`已删除账号 ${u.username}`);
       await loadUsers();
     }
   });
@@ -2580,44 +2628,79 @@ document.getElementById("form-user").addEventListener("submit", async ev => {
   const email = document.getElementById("f-user-email").value.trim();
   const pass = document.getElementById("f-user-pass").value;
   const roleEl = document.querySelector('input[name="f-user-role"]:checked');
-  const role = roleEl ? roleEl.value : "user";
+  // an existing account can be demoted; a new one is always an administrator
+  const role = editing ? (roleEl ? roleEl.value : "user") : "admin";
+  const emailShown = !document.getElementById("f-email-field").hidden;
   clearUserFormErrors();
   let invalid = false;
-  if (!name){ markField("f-user-name", "err-user-name", "请输入用户名"); invalid = true; }
-  else if (name.length > 64 || /[\u0000-\u001f]/.test(name)){
-    markField("f-user-name", "err-user-name", "用户名需为 1-64 个字符且不含控制字符"); invalid = true;
+  if (!name){ markField("f-user-name", "err-user-name", "请输入账号"); invalid = true; }
+  else if (name.length > 254 || /[\u0000-\u001f]/.test(name)){
+    markField("f-user-name", "err-user-name", "账号需为 1-254 个字符且不含控制字符"); invalid = true;
   }
-  if (!editing){
-    if (pass.length < 8){ markField("f-user-pass", "err-user-pass", "密码至少 8 位"); invalid = true; }
-    else if (pass.length > 1024){ markField("f-user-pass", "err-user-pass", "密码过长"); invalid = true; }
-  } else if (email && !UM_EMAIL_RE.test(email)){
+  const nameIsEmail = isEmailName(name);
+  if (emailShown && !nameIsEmail && email && !UM_EMAIL_RE.test(email)){
     markField("f-user-email", "err-user-email", "邮箱格式不正确"); invalid = true;
   }
+  if (!editing && !nameIsEmail && role === "admin" && !email){
+    markField("f-user-email", "err-user-email", "请为该管理员填写报告邮箱"); invalid = true;
+  }
+  if (!editing && pass && (pass.length < 8 || pass.length > 1024)){
+    markField("f-user-pass", "err-user-pass", "密码长度需 8-1024 位"); invalid = true;
+  }
   if (invalid) return;
+
   const saveBtn = document.getElementById("f-user-save");
   const dlg = document.getElementById("dlg-user");
   setBusy(saveBtn, true);
   try {
     if (!editing){
-      await umPost("/admin/users", { username: name, password: pass, role });
+      const payload = { username: name, role: "admin" };
+      if (pass) payload.password = pass;
+      if (emailShown && !nameIsEmail && email) payload.email = email;
+      const d = await umPost("/admin/users", payload);
       dlg.close();
-      toast(`已创建用户 ${name}`);
+      if (d.password){
+        // the generated password is shown once so it can be handed over when
+        // the mail server happens to be unreachable
+        toast(d.email_sent
+          ? `已创建 ${d.username}，初始密码已发送到 ${d.email}`
+          : `已创建 ${d.username}，邮件未发送：${d.email_error || "SMTP 未配置"}；初始密码 ${d.password}`,
+          d.email_sent ? "success" : "error", d.email_sent ? 5200 : 12000);
+      } else {
+        toast(`已创建账号 ${d.username || name}`);
+      }
       await loadUsers();
       return;
     }
+
     const oldName = editing.username;
     const changes = [];
-    if (role !== editing.role){
+    const isEmailAccount = isEmailName(oldName);
+    if (role !== editing.role && roleEl && !roleEl.disabled){
       await umPost(`/admin/users/${encodeURIComponent(oldName)}/role`, { role });
       changes.push("角色");
     }
-    if (email && email !== (editing.email || "")){
+    let renamed = false;
+    if (isEmailAccount && isEmailName(name) && name.toLowerCase() !== oldName.toLowerCase()){
+      await umPost(`/admin/users/${encodeURIComponent(oldName)}/rename`, {
+        username: name.toLowerCase()
+      });
+      renamed = true;
+      changes.push("账号邮箱");
+    } else if (!isEmailAccount && name !== oldName && !isEmailName(name)){
+      await umPost(`/admin/users/${encodeURIComponent(oldName)}/rename`, { username: name });
+      renamed = true;
+      changes.push("账号名");
+    } else if (!isEmailAccount && isEmailName(name)){
+      // promoting an alias to an email account: rename also rewrites its
+      // records so the address becomes the person key
+      await umPost(`/admin/users/${encodeURIComponent(oldName)}/rename`, { username: name.toLowerCase() });
+      renamed = true;
+      changes.push("账号邮箱");
+    }
+    if (emailShown && !isEmailAccount && email && email !== (editing.email || "")){
       await umPost(`/admin/users/${encodeURIComponent(oldName)}/email`, { email });
       changes.push("报告邮箱");
-    }
-    if (name !== oldName){
-      await umPost(`/admin/users/${encodeURIComponent(oldName)}/rename`, { username: name });
-      changes.push("用户名");
     }
     if (!changes.length){
       dlg.close();
@@ -2626,7 +2709,7 @@ document.getElementById("form-user").addEventListener("submit", async ev => {
     }
     dlg.close();
     toast(`已保存 ${name} 的${changes.join("、")}`);
-    if (oldName === UM.self && name !== oldName){
+    if (oldName === UM.self && renamed){
       setTimeout(() => window.location.reload(), 600);
       return;
     }
@@ -2635,31 +2718,6 @@ document.getElementById("form-user").addEventListener("submit", async ev => {
     showFormError("err-user-form", "err-user-form-text", e.message || "保存失败");
   } finally {
     setBusy(saveBtn, false);
-  }
-});
-
-document.getElementById("form-password").addEventListener("submit", async ev => {
-  ev.preventDefault();
-  const u = UM.resetting;
-  if (!u) return;
-  const pw = document.getElementById("f-pw-new").value;
-  const confirmPw = document.getElementById("f-pw-confirm").value;
-  clearPasswordErrors();
-  let invalid = false;
-  if (pw.length < 8){ markField("f-pw-new", "err-pw-new", "密码至少 8 位"); invalid = true; }
-  else if (pw.length > 1024){ markField("f-pw-new", "err-pw-new", "密码过长"); invalid = true; }
-  if (confirmPw !== pw){ markField("f-pw-confirm", "err-pw-confirm", "两次输入的密码不一致"); invalid = true; }
-  if (invalid) return;
-  const btn = document.getElementById("f-pw-save");
-  setBusy(btn, true);
-  try {
-    await umPost(`/admin/users/${encodeURIComponent(u.username)}/password`, { password: pw });
-    document.getElementById("dlg-password").close();
-    toast(`已重置 ${u.username} 的密码`);
-  } catch (e){
-    showFormError("err-pw-form", "err-pw-form-text", e.message || "重置失败");
-  } finally {
-    setBusy(btn, false);
   }
 });
 
@@ -2730,12 +2788,14 @@ async function loadSmtp(){
   document.getElementById("smtp-port").value = c.port || "";
   document.getElementById("smtp-user").value = c.user || "";
   document.getElementById("smtp-security").value = c.security || "starttls";
+  document.getElementById("smtp-allowlist").value = c.email_allowlist || "";
   // remember what the server holds, so a save can tell "changed" from "stale"
   smtpLoaded = {
     host: c.host || "",
     port: normSmtp(c.port),
     user: c.user || "",
     security: c.security || "starttls",
+    allowlist: c.email_allowlist || "",
   };
 }
 
@@ -2750,6 +2810,7 @@ function smtpPayload(){
     port: parseInt(document.getElementById("smtp-port").value, 10) || null,
     user: document.getElementById("smtp-user").value.trim(),
     security: document.getElementById("smtp-security").value,
+    email_allowlist: document.getElementById("smtp-allowlist").value.trim(),
   };
 }
 function schedulePayload(){
@@ -2770,7 +2831,8 @@ function smtpChanged(){
   return s.host !== smtpLoaded.host
       || normSmtp(s.port) !== smtpLoaded.port
       || s.user !== smtpLoaded.user
-      || s.security !== smtpLoaded.security;
+      || s.security !== smtpLoaded.security
+      || s.email_allowlist !== smtpLoaded.allowlist;
 }
 function mailMsg(text, ok){
   const el = document.getElementById("smtp-msg");
@@ -2782,7 +2844,7 @@ document.getElementById("smtp-save").onclick = async () => {
   const btn = document.getElementById("smtp-save");
   const smtp = smtpPayload();
   const sched = schedulePayload();
-  btn.disabled = true;
+  setBusy(btn, true);
   mailMsg("保存中…", true);
   try {
     if (smtpChanged()){
@@ -2811,7 +2873,7 @@ document.getElementById("smtp-save").onclick = async () => {
   } catch (e){
     mailMsg(e.message || "保存失败", false);
   } finally {
-    btn.disabled = false;
+    setBusy(btn, false);
   }
 };
 
