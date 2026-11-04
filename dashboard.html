@@ -352,6 +352,57 @@ dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
   .um-role{grid-template-columns:1fr}
   dialog.um-dialog{border-radius:var(--dsw-radius-xl)}
 }
+
+/* ===== Analysis tabs — DSH chart theme ==================================
+   The four analysis tabs share one look: a card header that can carry a
+   segmented switch, muted metric chips, sortable detail tables and pill
+   lists. Chart colours live in JS (CH) so both sides agree. */
+:root{
+  --chart-brand:#3b7ddd;
+  --chart-skill:#1d9e75;
+  --chart-text:#61666b;
+  --chart-dim:#81858c;
+  --chart-axis:#e1e5ee;
+  --chart-split:#f0f1f3;
+  --chart-track:#f1f3f5;
+}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-bottom:14px;flex-wrap:wrap}
+.card-head>.ttl{margin-bottom:0}
+.card-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.seg{display:inline-flex;align-items:center;gap:2px;padding:3px;border-radius:10px;
+  background:var(--dsw-alias-bg-module-platform)}
+.seg button{height:28px;padding:0 11px;border:0;border-radius:var(--dsw-radius-sm);
+  background:transparent;font-family:inherit;font-size:12px;line-height:18px;
+  color:var(--chart-dim);cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--dsw-alias-label-primary)}
+.seg button.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);
+  font-weight:500;box-shadow:0 0 0 .5px var(--dsw-alias-border-l3)}
+.metrics{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}
+.metric{display:inline-flex;flex-direction:column;gap:1px;padding:8px 14px;
+  border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-module-platform)}
+.metric .v{font-size:18px;line-height:24px;font-weight:500;font-variant-numeric:tabular-nums}
+.metric .l{font-size:11px;line-height:16px;color:var(--chart-dim)}
+.metric .d{font-size:11px;line-height:16px;font-weight:500}
+.metric .d.up{color:#22c55e}
+.metric .d.down{color:#ec1313}
+.metric .d.flat{color:var(--chart-dim)}
+table.sortable th{cursor:pointer;user-select:none;white-space:nowrap}
+table.sortable th .sort-arrow{display:inline-block;margin-left:4px;font-size:9px;opacity:0;
+  transition:opacity .12s}
+table.sortable th:hover .sort-arrow{opacity:.45}
+table.sortable th[data-dir] .sort-arrow{opacity:1;color:var(--chart-brand)}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;
+  background:var(--dsw-alias-bg-module-platform);font-size:11px;line-height:17px;
+  color:var(--chart-text);white-space:nowrap}
+.chip b{font-weight:500;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}
+.chip.is-skill{background:#1d9e7514;color:#167a59}
+.chart-note{font-size:12px;line-height:18px;color:var(--chart-dim);margin-top:8px}
+.chart-note b{font-weight:500;color:var(--dsw-alias-label-primary)}
+.legend-hint{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--chart-dim)}
+.legend-hint i{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--chart-skill)}
+.tbl-wrap{width:100%;overflow-x:auto}
 </style>
 </head>
 <body>
@@ -381,19 +432,43 @@ dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
   </div>
 
   <div class="panel on" id="p-overview">
-    <div class="card"><div class="ttl">每日记录趋势</div><div id="c-daily" class="chart"></div></div>
-    <div class="grid2">
-      <div class="card"><div class="ttl">工具调用次数</div><div id="c-tools" class="chart"></div></div>
-      <div class="card"><div class="ttl">Top 10 Skills</div><div id="c-topskills" class="chart"></div></div>
+    <div class="card">
+      <div class="card-head">
+        <div class="ttl">每日记录趋势</div>
+        <div class="card-head-actions">
+          <div class="seg" id="ov-window">
+            <button type="button" data-days="14">最近 14 天</button>
+            <button type="button" data-days="30">最近 30 天</button>
+            <button type="button" data-days="90">最近 90 天</button>
+            <button type="button" data-days="0" class="on">全部</button>
+          </div>
+          <span class="muted" id="ov-hint"></span>
+        </div>
+      </div>
+      <div id="c-daily" class="chart"></div>
+      <div class="chart-note" id="ov-note"></div>
     </div>
-    <div class="grid2">
-      <div class="card"><div class="ttl">工具明细</div><div id="t-tools"></div></div>
-      <div class="card"><div class="ttl">Skill 明细</div><div id="t-skills"></div></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="ttl">调用分布</div>
+        <div class="card-head-actions">
+          <div class="seg" id="dist-kind">
+            <button type="button" data-kind="tool" class="on">工具</button>
+            <button type="button" data-kind="skill">Skill</button>
+          </div>
+          <span class="muted" id="dist-hint"></span>
+        </div>
+      </div>
+      <div id="c-dist" class="chart"></div>
+      <div id="t-dist" class="tbl-wrap" style="margin-top:14px"></div>
+      <div class="chart-note" id="dist-note"></div>
     </div>
   </div>
 
   <div class="panel" id="p-tool">
-    <div class="card"><div class="ttl">Tool 按天调用明细</div>
+    <div class="card">
+      <div class="card-head"><div class="ttl">Tool 按天调用明细</div></div>
       <div class="toolbar">
         <label id="tool-user-wrap">用户 <select id="tool-user-sel"><option value="__all__">全部用户</option></select></label>
         <label>Tool <select id="tool-sel"></select></label>
@@ -410,11 +485,23 @@ dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
         <span class="muted" id="tool-hint"></span>
       </div>
       <div id="c-tool-daily" class="chart"></div>
+      <div class="metrics" id="tool-metrics" style="margin-top:14px"></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-head"><div class="ttl">窗口内 Tool 排行</div></div>
+        <div id="c-tool-rank" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="ttl">谁在用这个 Tool</div></div>
+        <div id="c-tool-users" class="chart"></div>
+      </div>
     </div>
   </div>
 
   <div class="panel" id="p-skill">
-    <div class="card"><div class="ttl">Skill 按天调用明细</div>
+    <div class="card">
+      <div class="card-head"><div class="ttl">Skill 按天调用明细</div></div>
       <div class="toolbar">
         <label id="skill-user-wrap">用户 <select id="skill-user-sel"><option value="__all__">全部用户</option></select></label>
         <label>Skill <select id="skill-sel"></select></label>
@@ -431,22 +518,36 @@ dialog.um-dialog.um-dialog-wide{width:min(520px,calc(100vw - 32px))}
         <span class="muted" id="skill-hint"></span>
       </div>
       <div id="c-skill-daily" class="chart"></div>
+      <div class="metrics" id="skill-metrics" style="margin-top:14px"></div>
     </div>
-    <div class="card"><div class="ttl">Skill 调用次数（全部）</div><div id="c-skills-all" class="chart lg"></div></div>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-head"><div class="ttl">窗口内 Skill 排行</div></div>
+        <div id="c-skill-rank" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="ttl">谁在用这个 Skill</div></div>
+        <div id="c-skill-users" class="chart"></div>
+      </div>
+    </div>
   </div>
 
   <div class="panel" id="p-user">
-    <div class="card"><div class="ttl">用户 × 工具调用</div>
+    <div class="card">
+      <div class="card-head"><div class="ttl">用户 × 工具调用</div>
+        <div class="card-head-actions"><span class="muted" id="user-hint"></span></div>
+      </div>
       <div class="toolbar" id="user-sel-wrap">
         <label>用户 <select id="user-sel"><option value="__all__">全部用户</option></select></label>
-        <span class="muted" id="user-hint"></span>
       </div>
       <div id="c-user-tools" class="chart lg"></div>
-      <div id="t-users" style="margin-top:12px"></div>
+      <div id="t-users" class="tbl-wrap" style="margin-top:12px"></div>
+      <div class="chart-note">提示：<span class="legend-hint"><i></i></span> 色的「skill」不是内置工具，而是所有 Skill 调用在工具统计中的汇总项。</div>
     </div>
-    <div class="card"><div class="ttl">用户 × Skill 调用</div>
+    <div class="card">
+      <div class="card-head"><div class="ttl">用户 × Skill 调用</div></div>
       <div id="c-user-skills" class="chart lg"></div>
-      <div id="t-user-skills" style="margin-top:12px"></div>
+      <div id="t-user-skills" class="tbl-wrap" style="margin-top:12px"></div>
     </div>
   </div>
 
@@ -725,7 +826,16 @@ let selectedUser = "__all__";
 const esc = (s) => String(s == null ? "" : s).replace(/&/g, "\u0026amp;").replace(/</g, "\u0026lt;")
   .replace(/>/g, "\u0026gt;").replace(/"/g, "\u0026quot;").replace(/'/g, "\u0026#39;");
 
+// Chart theme — one look for all four analysis tabs
+const CH = {
+  brand:"#3b7ddd", skill:"#1d9e75", text:"#61666b", dim:"#81858c",
+  axis:"#e1e5ee", split:"#f0f1f3", track:"#e6e9ef"
+};
 const PAL = ['#3b7ddd','#1d9e75','#e8a33d','#d4537e','#7f77dd','#43a7c4','#8fbf4d','#e07b58'];
+// green is reserved for the skill bucket, so the "tool" series never use it
+const PAL_TOOL = ['#3b7ddd','#e8a33d','#d4537e','#7f77dd','#43a7c4','#8fbf4d','#e07b58','#9aa4b2'];
+// the synthetic bucket that groups skill invocations inside the tool stats
+const SKILL_BUCKET = "skill";
 const chartCache = {};
 
 function draw(id, opt){
@@ -749,68 +859,154 @@ function resizeAll(){ Object.values(chartCache).forEach(c => { try{ c.resize(); 
 window.addEventListener("resize", resizeAll);
 
 function axisCommon(){
-  return { axisLine:{lineStyle:{color:"#dcdfe5"}}, axisTick:{show:false},
-           axisLabel:{color:"#6b7280",fontSize:11} };
+  return { axisLine:{lineStyle:{color:CH.axis}}, axisTick:{show:false},
+           axisLabel:{color:CH.text,fontSize:11} };
 }
 
-function optBarH(rows, color){
+// Daily trend. Values are read from the tooltip instead of a label on every
+// point — 35 permanent labels were unreadable — and an optional moving
+// average smooths out the weekday/weekend sawtooth.
+function optLine(buckets, values, opts){
+  const o = opts || {};
+  const color = o.color || CH.brand;
+  const series = [{
+    type:"line", smooth:true, symbolSize:5, data:values, z:3,
+    itemStyle:{color}, lineStyle:{width:2, color},
+    areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[
+      {offset:0, color:color+"2e"}, {offset:1, color:color+"02"}])},
+    emphasis:{focus:"series"}
+  }];
+  if (o.ma){
+    series.push({ name:"7 日均线", type:"line", smooth:true, symbol:"none", data:o.ma, z:2,
+                  itemStyle:{color:CH.dim}, lineStyle:{width:2, type:"dashed", color:CH.dim} });
+  }
+  return {
+    grid:{left:8,right:46,top:26,bottom:8,containLabel:true},
+    tooltip:{trigger:"axis", axisPointer:{type:"line", lineStyle:{color:CH.axis, type:"dashed"}},
+      formatter: ps => esc(ps[0].axisValue) + "<br/>" +
+        ps.map(p => esc(p.seriesName || "次数") + " " + p.value).join("<br/>")},
+    xAxis:Object.assign({type:"category",data:buckets,boundaryGap:false,
+      axisLabel:{color:CH.text,fontSize:11,hideOverlap:true}}, axisCommon()),
+    yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:CH.split}}}, axisCommon()),
+    series
+  };
+}
+
+// Horizontal ranking bars. Long names are truncated on the axis (the full
+// name stays in the tooltip) so one MCP tool cannot squeeze the plot area.
+function optBarH(rows, color, opts){
+  const o = opts || {};
   rows = rows.slice().sort((a,b) => a.n - b.n);
   const total = rows.reduce((s,r) => s + r.n, 0) || 1;
+  const hi = o.highlight;
   return {
-    grid:{left:8,right:56,top:10,bottom:8,containLabel:true},
-    tooltip:{trigger:"item",formatter:p => esc(p.name) + "<br/>" + p.value + " 次（" + (p.value/total*100).toFixed(1) + "%）"},
-    xAxis:Object.assign({type:"value",splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
-    yAxis:Object.assign({type:"category",data:rows.map(r => r.name)}, axisCommon()),
-    series:[{type:"bar",barMaxWidth:20,
-      data:rows.map(r => ({value:r.n, itemStyle:{color:color||PAL[0], borderRadius:[0,4,4,0]}})),
-      label:{show:true,position:"right",fontSize:11,color:"#4b5563",formatter:p => p.value}}]
+    grid:{left:8,right:80,top:10,bottom:8,containLabel:true},
+    tooltip:{trigger:"item",
+      formatter: p => {
+        const it = p.data || {};
+        return esc(it.full || p.name) + "<br/>" + p.value + " 次（" + (p.value/total*100).toFixed(1) + "%）"
+             + (it.note ? "<br/>" + esc(it.note) : "");
+      }},
+    xAxis:Object.assign({type:"value",splitLine:{lineStyle:{color:CH.split}},
+      axisLabel:{color:CH.dim,fontSize:10}}, axisCommon()),
+    yAxis:Object.assign({type:"category",data:rows.map(r => r.name),
+      axisLabel:{color:CH.text,fontSize:11,width:140,overflow:"truncate",
+                 formatter: v => v.length > 19 ? v.slice(0,18) + "…" : v}}, axisCommon()),
+    series:[{type:"bar",barMaxWidth:18,cursor:o.onClick ? "pointer" : "default",
+      data:rows.map(r => {
+        const isSkill = r.name === SKILL_BUCKET;
+        const dim = hi && r.name !== hi;
+        return {value:r.n, name:r.name, full:r.full || r.name, note:r.note || "",
+          itemStyle:{color: dim ? (isSkill ? "#bfe3d2" : CH.track)
+                        : (isSkill ? CH.skill : (r.color || color || CH.brand)),
+                     borderRadius:[0,4,4,0]}};
+      }),
+      label:{show:true,position:"right",fontSize:11,color:CH.text,
+        formatter:p => p.value + "  " + (p.value/total*100).toFixed(0) + "%"}}]
   };
 }
 
-function optLine(buckets, values){
+// Stacked columns. The series are ordered by their total so the legend reads
+// biggest-first instead of by palette index.
+function optStack(buckets, series, opts){
+  const o = opts || {};
+  // green stays reserved for the skill bucket so it reads the same in every
+  // chart; the remaining series take the tool palette
+  let ci = 0;
+  const colored = series.map(s => ({
+    ...s,
+    color: s.name === SKILL_BUCKET ? CH.skill : PAL_TOOL[ci++ % PAL_TOOL.length]
+  }));
+  const ordered = colored.map(s => ({...s, total:s.data.reduce((a,b) => a+b, 0)}))
+                         .sort((a,b) => b.total - a.total);
   return {
-    grid:{left:8,right:24,top:24,bottom:8,containLabel:true},
-    tooltip:{trigger:"axis",formatter:ps => ps.map(p => esc(p.name) + " " + p.value).join("<br/>")},
-    xAxis:Object.assign({type:"category",data:buckets,boundaryGap:false}, axisCommon()),
-    yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
-    series:[{type:"line",smooth:true,symbolSize:6,data:values,itemStyle:{color:PAL[0]},
-      areaStyle:{color:"rgba(59,125,221,0.12)"},
-      label:{show:true,fontSize:10,color:"#6b7280",formatter:p => p.value}}]
-  };
-}
-
-function optStack(buckets, series){
-  return {
-    grid:{left:8,right:20,top:34,bottom:8,containLabel:true},
+    grid:{left:8,right:20,top:36,bottom:8,containLabel:true},
     tooltip:{trigger:"axis",axisPointer:{type:"shadow"},
-      formatter:ps => esc(ps[0].name) + "<br/>" + ps.map(p => esc(p.seriesName) + " " + p.value).join("<br/>")},
-    legend:{type:"scroll",top:0,textStyle:{fontSize:11,color:"#4b5563"},itemWidth:10,itemHeight:10},
-    xAxis:Object.assign({type:"category",data:buckets}, axisCommon()),
-    yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:"#f0f1f3"}}}, axisCommon()),
-    series:series.map((s,i) => ({name:s.name,type:"bar",stack:"a",barMaxWidth:38,
-      itemStyle:{color:PAL[i % PAL.length]},data:s.data}))
+      formatter: ps => esc(ps[0].name) + "<br/>" +
+        ps.map(p => esc(p.seriesName) + " " + p.value).join("<br/>") +
+        "<br/>合计 " + ps.reduce((s,p) => s + p.value, 0)},
+    legend:{type:"scroll",top:0,textStyle:{fontSize:11,color:CH.text},
+            itemWidth:10,itemHeight:10},
+    xAxis:Object.assign({type:"category",data:buckets,
+      axisLabel:{color:CH.text,fontSize:11,interval:0,
+        rotate: buckets.some(b => String(b).length > 7) ? 16 : 0}}, axisCommon()),
+    yAxis:Object.assign({type:"value",minInterval:1,splitLine:{lineStyle:{color:CH.split}}}, axisCommon()),
+    series: ordered.map((s,i) => ({name:s.name,type:"bar",stack:"a",
+      barMaxWidth:o.barWidth || 56,
+      itemStyle:{color:s.color || PAL[i % PAL.length]},data:s.data}))
   };
 }
 
-function tbl(rows, cols){
-  if (!rows.length) return '<div class="empty">暂无数据</div>';
-  const max = Math.max(...rows.map(r => r.n || 0)) || 1;
-  let h = '<table><thead><tr>' +
-    cols.map(c => '<th' + (c.num ? ' class="num"' : '') + '>' + c.t + '</th>').join("") +
-    '</tr></thead><tbody>';
-  rows.forEach(r => {
-    h += '<tr>';
-    cols.forEach(c => {
-      if (c.bar){
-        h += '<td style="width:120px"><div class="bar"><i style="width:' +
-             (r.n / max * 100) + '%;background:' + (c.color || PAL[0]) + '"></i></div></td>';
-      } else {
-        h += '<td' + (c.num ? ' class="num"' : '') + '>' + (c.f ? c.f(r) : esc(r[c.k])) + '</td>';
-      }
-    });
-    h += '</tr>';
+// ---- shared helpers -------------------------------------------------------
+function movingAvg(vals, n){
+  return vals.map((_, i) => {
+    const w = vals.slice(Math.max(0, i - n + 1), i + 1);
+    return Math.round(w.reduce((a,b) => a + b, 0) / w.length);
   });
-  return h + '</tbody></table>';
+}
+// The n days ending at the last day with data; offset 1 gives the window
+// right before it, so a period-over-period comparison is one call away.
+function dayWindow(n, offset){
+  const off = offset || 0;
+  const all = Object.keys(DATA.by_day || {}).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  const anchor = all.length ? all[all.length-1] : new Date().toISOString().slice(0,10);
+  const end = new Date(anchor + "T00:00:00Z").getTime() - off * 86400000;
+  const days = [];
+  for (let i = n - 1; i >= 0; i--) days.push(new Date(end - i * 86400000).toISOString().slice(0,10));
+  return days;
+}
+function sumDays(perDay, days){
+  return days.reduce((a, d) => a + ((perDay || {})[d] || 0), 0);
+}
+function avgOf(vals){ return vals.length ? vals.reduce((a,b) => a + b, 0) / vals.length : 0; }
+function delta(cur, prev){
+  if (!prev) return cur ? 100 : 0;
+  return (cur - prev) / prev * 100;
+}
+function sortRows(rows, key, dir){
+  const s = dir === "asc" ? 1 : -1;
+  return rows.slice().sort((a,b) => {
+    const x = a[key], y = b[key];
+    if (typeof x === "number" && typeof y === "number") return (x - y) * s;
+    return String(x).localeCompare(String(y), "zh-CN", {sensitivity:"base"}) * s;
+  });
+}
+function renderMetrics(id, items){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = items.map(it => {
+    let d = "";
+    if (it.d !== undefined && it.d !== null){
+      const cls = it.d > 0.5 ? "up" : it.d < -0.5 ? "down" : "flat";
+      const sign = it.d > 0 ? "+" : "";
+      d = `<span class="d ${cls}">${sign}${it.d.toFixed(1)}%</span>`;
+    }
+    return `<div class="metric"><span class="v">${esc(String(it.v))}</span>` +
+           `<span class="l">${esc(it.l)}</span>${d}</div>`;
+  }).join("");
+}
+function userShort(d, key){
+  return (d.person_names || {})[key] || key;
 }
 
 const EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -881,35 +1077,112 @@ function userLabel(d, key){
   return key.includes("@") ? `${name} · ${key}` : `${name} · ${key}`;
 }
 
-function lastNDays(n){
-  const all = Object.keys(DATA.by_day || {}).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
-  const anchor = all.length ? all[all.length - 1] : new Date().toISOString().slice(0, 10);
-  const end = new Date(anchor + "T00:00:00Z");
-  if (isNaN(end.getTime())) return [];
-  const days = [];
-  for (let i = n - 1; i >= 0; i--) days.push(new Date(end.getTime() - i * 86400000).toISOString().slice(0, 10));
-  return days;
-}
-
 function renderKpis(d){
-  document.getElementById("k-total").textContent = d.total;
+  document.getElementById("k-total").textContent = d.total.toLocaleString();
   document.getElementById("k-clients").textContent =
     Object.keys(d.by_client || {}).filter(c => c !== "<unknown>").length;
   document.getElementById("k-users").textContent = knownUsers(d).length;
-  document.getElementById("k-last").textContent = d.last_timestamp || "-";
+  document.getElementById("k-last").textContent = fmtStamp(d.last_timestamp);
+}
+// "2026-11-04T14:16:13Z" is not something a reader parses at a glance
+function fmtStamp(iso){
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const p = n => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// ---- 总览 ----------------------------------------------------------------
+const OV = { window:0, kind:"tool", sort:{key:"n", dir:"desc"} };
+
 function renderOverview(d){
-  const days = Object.entries(d.by_day || {}).sort((a,b) => a[0].localeCompare(b[0]));
-  draw("c-daily", optLine(days.map(p => p[0]), days.map(p => p[1])));
-  const tools = Object.entries(d.by_tool || {}).map(([name, n]) => ({name, n}));
-  const skills = Object.entries(d.by_skill || {}).map(([name, n]) => ({name, n}));
-  draw("c-tools", optBarH(tools, PAL[0]));
-  draw("c-topskills", optBarH(skills.slice(0, 10), PAL[1]));
-  document.getElementById("t-tools").innerHTML = tbl(tools,
-    [{t:"工具",k:"name"},{t:"次数",k:"n",num:true},{t:"",bar:true}]);
-  document.getElementById("t-skills").innerHTML = tbl(skills,
-    [{t:"Skill",k:"name"},{t:"次数",k:"n",num:true},{t:"",bar:true,color:PAL[1]}]);
+  const allDays = Object.entries(d.by_day || {}).sort((a,b) => a[0].localeCompare(b[0]));
+  const days = OV.window ? allDays.slice(-OV.window) : allDays;
+  const vals = days.map(p => p[1]);
+  draw("c-daily", optLine(days.map(p => p[0]), vals,
+        {ma: vals.length > 7 ? movingAvg(vals, 7) : null}));
+  const total = vals.reduce((a,b) => a + b, 0);
+  document.getElementById("ov-hint").textContent =
+    `${days.length} 天 · 共 ${total.toLocaleString()} 次`;
+  // weekday vs weekend split — explains the sawtooth in the trend
+  let wd = 0, wdn = 0, we = 0, wen = 0;
+  days.forEach(([day, n]) => {
+    const dow = new Date(day + "T00:00:00Z").getUTCDay();
+    if (dow === 0 || dow === 6){ we += n; wen++; } else { wd += n; wdn++; }
+  });
+  document.getElementById("ov-note").innerHTML =
+    `日均 <b>${avgOf(vals).toFixed(1)}</b> 次 · 工作日日均 <b>${wdn ? (wd/wdn).toFixed(1) : "0"}</b>` +
+    ` · 周末日均 <b>${wen ? (we/wen).toFixed(1) : "0"}</b>` +
+    (vals.length > 7 ? " · 虚线为 7 日均线" : "");
+  renderDistribution(d);
+}
+
+// One card for both tools and skills: the old page showed a bar chart and a
+// table per metric, i.e. every number twice.
+function renderDistribution(d){
+  const isTool = OV.kind === "tool";
+  const src = isTool ? (d.by_tool || {}) : (d.by_skill || {});
+  const rows = Object.entries(src).map(([name, n]) => ({name, n}))
+                            .filter(r => r.n > 0)
+                            .sort((a,b) => b.n - a.n);
+  const total = rows.reduce((s,r) => s + r.n, 0) || 1;
+  const top = rows.slice(0, 12).map(r => ({
+    name:r.name, n:r.n,
+    note: r.name === SKILL_BUCKET ? "Skill 调用（内置工具之外）" : ""
+  }));
+  const chart = draw("c-dist", optBarH(top, isTool ? CH.brand : CH.skill, {onClick:true}));
+  if (!chart.__distBound){ chart.__distBound = true; chart.on("click", distClick); }
+  document.getElementById("dist-hint").textContent =
+    `${rows.length} 项 · 共 ${total.toLocaleString()} 次`;
+  document.getElementById("dist-note").innerHTML = isTool
+    ? '提示：<span class="legend-hint"><i></i></span> 色的「skill」不是内置工具，而是所有 Skill 调用在工具统计中的汇总项。'
+    : "";
+  renderDistTable(rows, total, isTool);
+}
+
+function renderDistTable(rows, total, isTool){
+  const s = OV.sort;
+  const sorted = sortRows(rows, s.key, s.dir);
+  const max = Math.max(...rows.map(r => r.n)) || 1;
+  const barColor = isTool ? CH.brand : CH.skill;
+  let h = '<table class="sortable" style="width:100%;border-collapse:collapse;font-size:13px">' +
+    '<thead><tr>' +
+    '<th data-sort="name" style="padding:8px 10px;text-align:left;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">' +
+      '项目<span class="sort-arrow">▼</span></th>' +
+    '<th data-sort="n" style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">' +
+      '次数<span class="sort-arrow">▼</span></th>' +
+    '<th data-sort="pct" style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">' +
+      '占比<span class="sort-arrow">▼</span></th>' +
+    '<th style="padding:8px 10px;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb;width:200px">分布</th>' +
+    '</tr></thead><tbody>';
+  sorted.forEach(r => {
+    const pct = r.n / total * 100;
+    const color = r.name === SKILL_BUCKET ? CH.skill : barColor;
+    h += '<tr>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3">' + esc(r.name) +
+        (r.name === SKILL_BUCKET ? ' <span class="chip is-skill">Skill 调用</span>' : '') + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">' + r.n + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">' + pct.toFixed(1) + '%</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3">' +
+        '<div class="bar"><i style="width:' + (r.n / max * 100) + '%;background:' + color + '"></i></div></td>' +
+    '</tr>';
+  });
+  h += '</tbody></table>';
+  const box = document.getElementById("t-dist");
+  box.innerHTML = rows.length ? h : '<div class="empty">暂无数据</div>';
+  box.querySelectorAll("th[data-sort]").forEach(th => {
+    if (OV.sort.key === th.dataset.sort){
+      th.dataset.dir = OV.sort.dir;
+      th.querySelector(".sort-arrow").textContent = OV.sort.dir === "asc" ? "▲" : "▼";
+    }
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (OV.sort.key === key) OV.sort.dir = OV.sort.dir === "desc" ? "asc" : "desc";
+      else OV.sort = {key, dir: key === "name" ? "asc" : "desc"};
+      renderDistribution(DATA);
+    });
+  });
 }
 
 function populateUserFilter(id, d){
@@ -934,14 +1207,28 @@ function renderToolTab(d){
   const tool = sel.value;
   if (!tool) return;
   const n = parseInt(document.getElementById("days-sel").value, 10);
-  const days = lastNDays(n);
+  const days = dayWindow(n, 0);
+  const prevDays = dayWindow(n, n);
   const perDay = user === "__all__" ? (d.tool_days || {})[tool] || {}
     : ((d.user_tool_days || {})[user] || {})[tool] || {};
   const values = days.map(x => perDay[x] || 0);
-  const who = isAdmin ? (user === "__all__" ? "全部用户" : user) + " · " : "";
+  draw("c-tool-daily", optLine(days, values,
+        {ma: values.length > 7 ? movingAvg(values, 7) : null}));
+  const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
+  const sum = sumDays(perDay, days);
   document.getElementById("tool-hint").textContent =
-    `${who}${tool} · 最近 ${n} 天共 ${values.reduce((a,b) => a+b, 0)} 次`;
-  draw("c-tool-daily", optLine(days, values));
+    `${who}${tool} · 最近 ${n} 天共 ${sum} 次`;
+  // period over period + where this tool sits in the window
+  const prevSum = sumDays(perDay, prevDays);
+  const rank = toolsInWindow(d, user, days);
+  const pos = rank.findIndex(r => r.name === tool) + 1;
+  renderMetrics("tool-metrics", [
+    {v:sum, l:`最近 ${n} 天`, d:delta(sum, prevSum)},
+    {v:avgOf(values).toFixed(1), l:"日均次数", d:delta(avgOf(values), avgOf(prevDays.map(x => perDay[x] || 0)))},
+    {v:pos ? `${pos} / ${rank.length}` : "—", l:"窗口内 Tool 排名"}
+  ]);
+  draw("c-tool-rank", optBarH(rank.slice(0, 12), CH.brand, {highlight: tool}));
+  draw("c-tool-users", optBarH(usersOfTool(d, tool, days), CH.skill));
 }
 
 function renderSkillTab(d){
@@ -949,25 +1236,75 @@ function renderSkillTab(d){
   const user = document.getElementById("skill-user-sel").value;
   const sel = document.getElementById("skill-sel");
   const names = user === "__all__" ? Object.keys(d.by_skill || {})
-    : Object.keys((d.user_skill_days || {})[user] || {});
+    : Object.keys((d.user_skills || {})[user] || {});
   const cur = sel.value;
   sel.innerHTML = names.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
     || "<option value=''>（暂无 skill 数据）</option>";
   if (names.includes(cur)) sel.value = cur;
   const skill = sel.value;
-  if (skill){
-    const n = parseInt(document.getElementById("skill-days-sel").value, 10);
-    const days = lastNDays(n);
-    const perDay = user === "__all__" ? (d.skill_days || {})[skill] || {}
-      : ((d.user_skill_days || {})[user] || {})[skill] || {};
-    const values = days.map(x => perDay[x] || 0);
-    const who = isAdmin ? (user === "__all__" ? "全部用户" : user) + " · " : "";
-    document.getElementById("skill-hint").textContent =
-      `${who}${skill} · 最近 ${n} 天共 ${values.reduce((a,b) => a+b, 0)} 次`;
-    draw("c-skill-daily", optLine(days, values));
-  }
-  const skills = Object.entries(d.by_skill || {}).map(([name, n]) => ({name, n}));
-  draw("c-skills-all", optBarH(skills, PAL[1]));
+  if (!skill) return;
+  const n = parseInt(document.getElementById("skill-days-sel").value, 10);
+  const days = dayWindow(n, 0);
+  const prevDays = dayWindow(n, n);
+  const perDay = user === "__all__" ? (d.skill_days || {})[skill] || {}
+    : ((d.user_skill_days || {})[user] || {})[skill] || {};
+  const values = days.map(x => perDay[x] || 0);
+  draw("c-skill-daily", optLine(days, values,
+        {ma: values.length > 7 ? movingAvg(values, 7) : null}));
+  const who = isAdmin ? (user === "__all__" ? "全部用户" : userLabel(d, user)) + " · " : "";
+  const sum = sumDays(perDay, days);
+  document.getElementById("skill-hint").textContent =
+    `${who}${skill} · 最近 ${n} 天共 ${sum} 次`;
+  const prevSum = sumDays(perDay, prevDays);
+  // the ranking chart now uses the same window as the trend above, so the
+  // two numbers can be compared (before: all-time vs 14 days, side by side)
+  const rank = skillsInWindow(d, user, days);
+  const pos = rank.findIndex(r => r.name === skill) + 1;
+  renderMetrics("skill-metrics", [
+    {v:sum, l:`最近 ${n} 天`, d:delta(sum, prevSum)},
+    {v:avgOf(values).toFixed(1), l:"日均次数", d:delta(avgOf(values), avgOf(prevDays.map(x => perDay[x] || 0)))},
+    {v:pos ? `${pos} / ${rank.length}` : "—", l:"窗口内 Skill 排名"}
+  ]);
+  draw("c-skill-rank", optBarH(rank.slice(0, 12), CH.skill, {highlight: skill}));
+  draw("c-skill-users", optBarH(usersOfSkill(d, skill, days), CH.brand));
+}
+
+// Which tools/skills were used inside the window, biggest first.
+function toolsInWindow(d, user, days){
+  const src = user === "__all__" ? (d.tool_days || {}) : ((d.user_tool_days || {})[user] || {});
+  const out = [];
+  Object.keys(src).forEach(t => {
+    const n = sumDays(src[t], days);
+    if (n > 0) out.push({name:t, n,
+      note: t === SKILL_BUCKET ? "Skill 调用（内置工具之外）" : ""});
+  });
+  return out.sort((a,b) => b.n - a.n);
+}
+function skillsInWindow(d, user, days){
+  const src = user === "__all__" ? (d.skill_days || {}) : ((d.user_skill_days || {})[user] || {});
+  const out = [];
+  Object.keys(src).forEach(s => {
+    const n = sumDays(src[s], days);
+    if (n > 0) out.push({name:s, n});
+  });
+  return out.sort((a,b) => b.n - a.n);
+}
+// Who used it — the question the old pages could not answer.
+function usersOfTool(d, tool, days){
+  const out = [];
+  Object.keys(d.user_tool_days || {}).forEach(person => {
+    const n = sumDays((d.user_tool_days[person] || {})[tool], days);
+    if (n > 0) out.push({name:userShort(d, person), full:userLabel(d, person), n});
+  });
+  return out.sort((a,b) => b.n - a.n);
+}
+function usersOfSkill(d, skill, days){
+  const out = [];
+  Object.keys(d.user_skill_days || {}).forEach(person => {
+    const n = sumDays((d.user_skill_days[person] || {})[skill], days);
+    if (n > 0) out.push({name:userShort(d, person), full:userLabel(d, person), n});
+  });
+  return out.sort((a,b) => b.n - a.n);
 }
 
 function renderUserTab(d){
@@ -984,34 +1321,64 @@ function renderUserTab(d){
     shown.forEach(u => Object.entries(userSkills[u] || {}).forEach(([s, n]) => skillTotals[s] = (skillTotals[s] || 0) + n));
     const topTools = Object.entries(toolTotals).sort((a,b) => b[1] - a[1]).slice(0, 8).map(p => p[0]);
     const topSkills = Object.entries(skillTotals).sort((a,b) => b[1] - a[1]).slice(0, 8).map(p => p[0]);
-    tOpt = optStack(shown, topTools.map(t => ({name:t, data:shown.map(u => (userTools[u] || {})[t] || 0)})));
-    sOpt = optStack(shown, topSkills.map(s => ({name:s, data:shown.map(u => (userSkills[u] || {})[s] || 0)})));
-    tRows = users.map(([u, total]) => ({name:userLabel(d, u), n:total,
-      detail:Object.entries(userTools[u] || {}).sort((a,b) => b[1] - a[1]).map(([t, n]) => `${t} ${n}`).join("，")}));
+    // the axis shows the display name, not the full account key
+    const labels = shown.map(u => userShort(d, u));
+    tOpt = optStack(labels, topTools.map(t => ({name:t, data:shown.map(u => (userTools[u] || {})[t] || 0)})));
+    sOpt = optStack(labels, topSkills.map(s => ({name:s, data:shown.map(u => (userSkills[u] || {})[s] || 0)})));
+    tRows = users.map(([u, total]) => ({name:userLabel(d, u), short:userShort(d, u), n:total,
+      detail:Object.entries(userTools[u] || {}).sort((a,b) => b[1] - a[1]).map(([t, n]) => `${t} ${n}`)}));
     sRows = users.map(([u]) => {
       const det = Object.entries(userSkills[u] || {}).sort((a,b) => b[1] - a[1]);
-      return {name:userLabel(d, u), n:det.reduce((s, x) => s + x[1], 0), detail:det.map(([s, n]) => `${s} ${n}`).join("，")};
+      return {name:userLabel(d, u), short:userShort(d, u), n:det.reduce((s, x) => s + x[1], 0),
+        detail:det.map(([s, n]) => `${s} ${n}`)};
     });
   } else {
     hint.textContent = "";
     const tools = Object.entries(userTools[selectedUser] || {}).sort((a,b) => b[1] - a[1]).map(([name, n]) => ({name, n}));
     const skills = Object.entries(userSkills[selectedUser] || {}).sort((a,b) => b[1] - a[1]).map(([name, n]) => ({name, n}));
-    tOpt = optBarH(tools, PAL[0]);
-    sOpt = optBarH(skills, PAL[1]);
+    tOpt = optBarH(tools, CH.brand);
+    sOpt = optBarH(skills, CH.skill);
     const uTotal = (users.find(u => u[0] === selectedUser) || [0, 0])[1];
     const uLabel = userLabel(d, selectedUser);
-    tRows = [{name:uLabel, n:uTotal, detail:tools.map(t => `${t.name} ${t.n}`).join("，")}];
-    sRows = [{name:uLabel, n:skills.reduce((s, x) => s + x.n, 0),
-      detail:skills.map(s => `${s.name} ${s.n}`).join("，")}];
+    tRows = [{name:uLabel, short:userShort(d, selectedUser), n:uTotal,
+      detail:tools.map(t => `${t.name} ${t.n}`)}];
+    sRows = [{name:uLabel, short:userShort(d, selectedUser), n:skills.reduce((s, x) => s + x.n, 0),
+      detail:skills.map(s => `${s.name} ${s.n}`)}];
   }
   draw("c-user-tools", tOpt);
   draw("c-user-skills", sOpt);
-  document.getElementById("t-users").innerHTML = tbl(tRows,
-    [{t:"用户",k:"name"},{t:"总调用",k:"n",num:true},
-     {t:"各工具明细",k:"detail",f:r => esc(r.detail) || "-"},{t:"",bar:true}]);
-  document.getElementById("t-user-skills").innerHTML = tbl(sRows,
-    [{t:"用户",k:"name"},{t:"Skill 总数",k:"n",num:true},
-     {t:"Skill 明细",k:"detail",f:r => esc(r.detail) || "-"},{t:"",bar:true,color:PAL[1]}]);
+  document.getElementById("t-users").innerHTML = userTable(tRows, CH.brand);
+  document.getElementById("t-user-skills").innerHTML = userTable(sRows, CH.skill);
+}
+
+// The detail column used to be one long comma-separated sentence; pills are
+// far easier to scan.
+function userTable(rows, color){
+  if (!rows.length) return '<div class="empty">暂无数据</div>';
+  const max = Math.max(...rows.map(r => r.n || 0)) || 1;
+  let h = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    '<thead><tr>' +
+    '<th style="padding:8px 10px;text-align:left;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">用户</th>' +
+    '<th style="padding:8px 10px;text-align:right;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">总调用</th>' +
+    '<th style="padding:8px 10px;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb">明细</th>' +
+    '<th style="padding:8px 10px;background:#f7f8fa;color:#4b5563;font-weight:600;border-bottom:1px solid #e5e7eb;width:160px">占比</th>' +
+    '</tr></thead><tbody>';
+  rows.forEach(r => {
+    const pills = (r.detail || []).map(d => {
+      const parts = String(d).split(" ");
+      const nm = parts.slice(0, -1).join(" ");
+      const n = parts[parts.length - 1];
+      return '<span class="chip">' + esc(nm) + ' <b>' + esc(n) + '</b></span>';
+    }).join("");
+    h += '<tr>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3">' + esc(r.name) + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">' + r.n + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3"><div class="chips">' + (pills || "-") + '</div></td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #f0f1f3">' +
+        '<div class="bar"><i style="width:' + (r.n / max * 100) + '%;background:' + color + '"></i></div></td>' +
+    '</tr>';
+  });
+  return h + '</tbody></table>';
 }
 
 function populateUserSelect(d){
@@ -1989,6 +2356,49 @@ document.getElementById("user-sel").addEventListener("change", () => {
   renderUserTab(DATA);
 });
 
+// --- overview controls ----------------------------------------------------
+document.getElementById("ov-window").addEventListener("click", ev => {
+  const btn = ev.target.closest("button[data-days]");
+  if (!btn) return;
+  OV.window = parseInt(btn.dataset.days, 10) || 0;
+  document.querySelectorAll("#ov-window button").forEach(b => b.classList.toggle("on", b === btn));
+  renderOverview(DATA);
+});
+document.getElementById("dist-kind").addEventListener("click", ev => {
+  const btn = ev.target.closest("button[data-kind]");
+  if (!btn) return;
+  OV.kind = btn.dataset.kind;
+  OV.sort = {key:"n", dir:"desc"};
+  document.querySelectorAll("#dist-kind button").forEach(b => b.classList.toggle("on", b === btn));
+  renderDistribution(DATA);
+});
+// Clicking a bar drills into the matching analysis tab.
+function distClick(params){
+  const name = params && params.name;
+  if (!name) return;
+  if (OV.kind === "tool"){
+    if (name === SKILL_BUCKET){
+      showTab("skill");
+      return;
+    }
+    showTab("tool");
+    const sel = document.getElementById("tool-sel");
+    if ([...sel.options].some(o => o.value === name)) sel.value = name;
+    renderToolTab(DATA);
+  } else {
+    showTab("skill");
+    const sel = document.getElementById("skill-sel");
+    if ([...sel.options].some(o => o.value === name)) sel.value = name;
+    renderSkillTab(DATA);
+  }
+}
+
+// Switch to a tab from anywhere (the distribution bars drill into the
+// matching analysis tab).
+function showTab(name){
+  const tab = document.querySelector(`.tab[data-tab="${name}"]`);
+  if (tab) tab.click();
+}
 document.querySelectorAll(".tab").forEach(t => {
   t.onclick = () => {
     document.querySelectorAll(".tab").forEach(x => x.classList.remove("on"));

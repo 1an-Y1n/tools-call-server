@@ -251,15 +251,38 @@ Requires login; admins get all data, regular users get only their own records
 
 HTML dashboard (light theme, ECharts served locally from `static/` — no CDN or
 internet needed at view time; `GET /` redirects here). Layout: KPI cards on top
-(total / clients / users / last timestamp), then tabs — 总览 (daily trend, tool
-and skill counts, detail tables), Tool 分析 and Skill 分析 (daily drill-downs
-filterable by 时间范围 × 用户 × tool/skill name with 7/14/30/90/180/365-day windows),
-用户分析 (user × tool / user × skill stacked charts + tables; admins can pick
-any user, regular users are locked to their own records), 用户管理 (admin-only
-account management, see [用户管理 tab](#用户管理-tab)), 账号 (change own
-password; admins additionally get the SMTP and schedule cards). Data is embedded
-server-side on load and refreshed via `/v1/stats` every 30 s (toggle) or on
-demand. Requires login; the header shows the signed-in user with 登出.
+(total / clients / users / last timestamp), then tabs — 总览 (daily trend with a
+7-day moving average and a 14/30/90-day/all window switch, plus one 调用分布
+card that toggles between 工具 and Skill and carries both the ranking bars and
+a sortable detail table), Tool 分析 and Skill 分析 (daily drill-downs
+filterable by 时间范围 × 用户 × tool/skill name with 7/14/30/90/180/365-day
+windows, each with period-over-period metrics, a window ranking chart and a
+「谁在用」 breakdown per user), 用户分析 (user × tool / user × skill stacked
+charts + tables; admins can pick any user, regular users are locked to their
+own records), 用户管理 (admin-only account management, see
+[用户管理 tab](#用户管理-tab)), 账号 (change own password; admins additionally
+get the SMTP and schedule cards). Data is embedded server-side on load and
+refreshed via `/v1/stats` every 30 s (toggle) or on demand. Requires login; the
+header shows the signed-in user with 登出.
+
+### Analysis tabs
+
+The four analysis tabs share one chart theme (DSH neutral-bluish surfaces,
+hairline axes, one brand blue and one skill green). Reading notes:
+
+- **The `skill` bar is not a tool.** Skill invocations are counted as one
+  `skill` bucket inside the tool statistics (`CASE WHEN type = 'skill_invoke'
+  THEN 'skill'`). It is drawn in the skill green and labelled as such in the
+  overview and the user table, so it is never mistaken for a built-in tool.
+- **Values are read from the tooltip**, not from a label on every point — 35
+  permanent labels on the overview trend were unreadable.
+- **Every chart states its window.** The Skill ranking used to be all-time
+  while the trend above it covered 14 days; the two numbers are now on the
+  same window.
+- **Clicking a bar drills in.** A bar in the overview's 调用分布 chart opens
+  the matching Tool / Skill analysis tab with that item selected.
+- The window ranking chart dims every entry except the selected one, so the
+  position of the current item is visible at a glance.
 
 ### Admin / account endpoints
 
